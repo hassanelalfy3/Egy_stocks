@@ -32,7 +32,7 @@ st.markdown("""
         color: #000000 !important; 
     }
     
-    .status-card { background: #161b22; padding: 20px; border-radius: 10px; border-left: 5px solid #238636; margin-bottom: 20px; }
+    .status-card { background: #1e293b; padding: 20px; border-radius: 10px; border-left: 5px solid #238636; margin-bottom: 20px; }
     .news-card { font-size: 0.9rem; padding: 10px; border-bottom: 1px solid #30363d; color: #e6edf3; }
     </style>
     """, unsafe_allow_html=True)
