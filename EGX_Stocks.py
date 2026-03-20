@@ -109,7 +109,7 @@ for i, (name, sym) in enumerate(indices.items()):
     try:
         # Download 5 days of data to ensure we have at least 2 trading days 
         # (Handles weekends/holidays better)
-        idx_df = yf.download(sym, period="5d", progress=False)
+        idx_df = yf.download(sym, period="5w", progress=False)
         idx_df = clean_df(idx_df)
         
         if not idx_df.empty and len(idx_df) >= 2:
