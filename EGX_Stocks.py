@@ -16,7 +16,7 @@ st.markdown("""
     
     /* FIX: High-contrast Scorecards (White background, Black text) */
     [data-testid="stMetric"] {
-        background-color: #ffffff !important; 
+        background-color: #f0f2f6 !important; 
         border: 2px solid #238636;
         padding: 15px;
         border-radius: 12px;
