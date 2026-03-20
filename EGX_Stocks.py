@@ -99,23 +99,35 @@ st.title("EGX Alpha Terminal 🛡️")
 st.subheader("Market Indices")
 indices = {
     "EGX 30": "^EGX30",
-    "EGX 70": "^EGX70EWI",
-    "EGX 100": "^EGX100EWI",
+    "EGX 70 EWI": "^EGX70EWI",
+    "EGX 100 EWI": "^EGX100EWI",
     "EGX 33 (Shariah)": "SHARIAH.CA"
 }
 
 idx_cols = st.columns(4)
 for i, (name, sym) in enumerate(indices.items()):
     try:
-        idx_df = clean_df(yf.download(sym, period="2d", progress=False))
-        if not idx_df.empty:
+        # Download 5 days of data to ensure we have at least 2 trading days 
+        # (Handles weekends/holidays better)
+        idx_df = yf.download(sym, period="5d", progress=False)
+        idx_df = clean_df(idx_df)
+        
+        if not idx_df.empty and len(idx_df) >= 2:
             curr = idx_df['Close'].iloc[-1]
             prev = idx_df['Close'].iloc[-2]
             chg = ((curr - prev) / prev) * 100
-            idx_cols[i].metric(label=name, value=f"{curr:,.0f}", delta=f"{chg:+.2f}%")
-    except:
-        idx_cols[i].error(f"Error {name}")
-
+            
+            # Formatted with thousands separator (e.g., 30,000)
+            idx_cols[i].metric(
+                label=name, 
+                value=f"{curr:,.0f}", 
+                delta=f"{chg:+.2f}%"
+            )
+        else:
+            idx_cols[i].warning(f"No data for {name}")
+    except Exception as e:
+        idx_cols[i].error(f"Error loading {name}")
+        
 st.divider()
 
 tab1, tab2, tab3 = st.tabs(["📊 Market Pulse", "🔍 Deep Insight", "⚖️ Portfolio Balancer"])
