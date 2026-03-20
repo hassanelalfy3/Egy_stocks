@@ -103,7 +103,7 @@ for i, (name, sym) in enumerate(indices.items()):
     except: pass
 
 st.divider()
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Market Pulse", "🔍 Deep Insight", "⚖️ Portfolio", "🗓️ CBE"])
+tab1, tab2, tab3, tab4, tab5= st.tabs(["📊 Market Pulse", "🔍 Deep Insight", "⚖️ Portfolio", "🗓️ CBE", " Simulation"])
 
 # --- TAB 1: MARKET PULSE (EGX 30 & 100) ---
 with tab1:
@@ -189,5 +189,21 @@ with tab4:
         st.subheader("🚀 Rate Cut Simulator")
         sim = st.slider("Simulated Cut (bps)", 0, 200, 100)
         st.info(f"A {sim}bps cut targets a ~{ (sim/100)*4 :.1f}% market valuation boost.")
-
+# Tab5h: Backtest (The Simulator)
+with tab5:
+    st.subheader("🧪 Historical Strategy Simulator")
+    bc1, bc2, bc3 = st.columns(3)
+    bt_tk = bc1.selectbox("Stock", egx30 + egx100, key="bt_tk")
+    bt_inv = bc2.number_input("Investment (EGP)", value=20000)
+    bt_rsi = bc3.slider("Buy RSI Threshold", 20, 50, 30)
+    
+    if st.button("Run 1-Year Backtest"):
+        logs, f_bal = run_backtest(bt_tk, bt_inv, (target_gain/capital), bt_rsi, sl_slider)
+        if not logs.empty:
+            st.metric("Final Balance", f"{f_bal:,.2f} EGP", f"{((f_bal-bt_inv)/bt_inv)*100:+.2f}%")
+            st.dataframe(logs, use_container_width=True)
+            fig_bt = go.Figure(data=[go.Scatter(x=logs[logs['Action']=="SELL"]['Date'], y=logs[logs['Action']=="SELL"]['Balance'], mode='lines+markers', line=dict(color='#238636'))])
+            fig_bt.update_layout(title="Equity Growth", template="plotly_dark", height=300)
+            st.plotly_chart(fig_bt, use_container_width=True)
+        else: st.error("No trades triggered. Try increasing the RSI Threshold.")
 st.caption(f"EGX Alpha Pro v16.0 | Sync: {datetime.now().strftime('%H:%M:%S')}")
