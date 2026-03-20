@@ -1,6 +1,7 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import pandas_ta as ta
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -12,21 +13,15 @@ def add_indicators(df):
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
-    # RSI Calculation
-    delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = gain / loss
-    df['RSI'] = 100 - (100 / (1 + rs))
-
-    # Moving Averages
-    df['SMA20'] = df['Close'].rolling(window=20).mean()
-    df['SMA50'] = df['Close'].rolling(window=50).mean()
-
-    # Bollinger Bands
-    df['StdDev'] = df['Close'].rolling(window=20).std()
-    df['Upper_Band'] = df['SMA20'] + (df['StdDev'] * 2)
-    df['Lower_Band'] = df['SMA20'] - (df['StdDev'] * 2)
+    # Use pandas_ta for calculations
+    df['RSI'] = ta.rsi(df['Close'], length=14)
+    
+    # Bollinger Bands (returns 3 columns: lower, mid, upper)
+    bbands = ta.bbands(df['Close'], length=20, std=2)
+    df['Lower_Band'] = bbands['BBL_20_2.0']
+    df['SMA20'] = bbands['BBM_20_2.0']
+    df['Upper_Band'] = bbands['BBU_20_2.0']
+    
     return df
 
 def get_recommendation(df):
@@ -62,7 +57,7 @@ period = st.sidebar.selectbox("فترة عرض الشارت:", ["3mo", "6mo", "1
 with st.spinner('جاري تحديث بيانات السوق...'):
     df = yf.download(selected_stock, period="1y", interval="1d", progress=False)
 
-if not df.empty:
+if not df.empty and len(df) > 20:
     df = add_indicators(df)
     rec = get_recommendation(df)
 
@@ -81,13 +76,9 @@ if not df.empty:
                                  low=df['Low'], close=df['Close'], name="Price"), row=1, col=1)
 
     fig.add_trace(go.Scatter(x=df.index, y=df['Upper_Band'], name="مقاومة بولينجر",
-                             line=dict(color='rgba(255,255,255,0.2)', dash='dot')), row=1, col=1)
+                             line=dict(color='rgba(255,255,255,0.4)', dash='dot')), row=1, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=df['Lower_Band'], name="دعم بولينجر",
-                             line=dict(color='rgba(255,255,255,0.2)', dash='dot')), row=1, col=1)
-
-    if rec["action"] == "BUY 🟢":
-        fig.add_annotation(x=df.index[-1], y=df['Low'].iloc[-1], text="دخول",
-                           showarrow=True, arrowhead=1, bgcolor="green", font=dict(color="white"), row=1, col=1)
+                             line=dict(color='rgba(255,255,255,0.4)', dash='dot')), row=1, col=1)
 
     fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI", line=dict(color='orange')), row=2, col=1)
     fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
@@ -96,4 +87,4 @@ if not df.empty:
     fig.update_layout(height=800, template="plotly_dark", xaxis_rangeslider_visible=False)
     st.plotly_chart(fig, use_container_width=True)
 else:
-    st.error("لم يتم العثور على بيانات لهذا السهم. تأكد من اتصال الإنترنت.")
+    st.error("بيانات غير كافية لتحليل هذا السهم حالياً.")
