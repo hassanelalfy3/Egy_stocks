@@ -133,27 +133,69 @@ st.divider()
 tab1, tab2, tab3 = st.tabs(["📊 Market Pulse", "🔍 Deep Insight", "⚖️ Portfolio Balancer"])
 
 with tab1:
-    # Quick Summary Column
-    cols = st.columns(len(TICKERS[:4]))
-    for i, t in enumerate(TICKERS[:4]):
+    # --- 1. Quick Metric Row (Top 4) ---
+    cols = st.columns(4)
+    quick_tickers = ["COMI.CA", "TMGH.CA", "FWRY.CA", "SWDY.CA"]
+    for i, t in enumerate(quick_tickers):
         stats = get_analysis(t, target_gain, capital)
         if stats:
             cols[i].metric(t.replace(".CA", ""), f"{stats['price']:.2f}", f"{stats['change']:+.2f}%")
 
-    st.subheader("Market Opportunities (Goal-Based)")
-    market_list = []
-    for t in TICKERS:
+    # --- 2. EGX 30 Section ---
+    st.subheader("🔵 EGX 30 Opportunities (Blue Chips)")
+    egx30_list = ["COMI.CA", "TMGH.CA", "SWDY.CA", "ETEL.CA", "ESRS.CA", "ABUK.CA", "ORAS.CA"]
+    
+    market_30 = []
+    for t in egx30_list:
         s = get_analysis(t, target_gain, capital)
         if s:
-            market_list.append({
-                "Ticker": t, 
+            # Alert Logic
+            status = ""
+            if s['rsi'] > 70: status = "🚩 Overbought"
+            elif s['rsi'] < 30: status = "🟢 Oversold"
+            else: status = "⚖️ Neutral"
+
+            market_30.append({
+                "Ticker": t.replace(".CA", ""), 
                 "Price": round(s['price'], 2), 
+                "Status": status,
                 "RSI": round(s['rsi'], 1),
                 "Buy Range": f"{s['buy_range'][0]:.2f}-{s['buy_range'][1]:.2f}",
                 "Target TP": round(s['tp'], 2), 
                 "Safety SL": round(s['sl'], 2)
             })
-    st.table(pd.DataFrame(market_list))
+    
+    if market_30:
+        st.dataframe(pd.DataFrame(market_30), use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # --- 3. EGX 100 Section ---
+    st.subheader("🟠 EGX 100 Opportunities (Mid-Caps & Growth)")
+    egx100_list = ["FWRY.CA", "AMOC.CA", "EKHO.CA", "MNHD.CA", "HELI.CA", "ISPH.CA", "JUFO.CA"]
+    
+    market_100 = []
+    for t in egx100_list:
+        s = get_analysis(t, target_gain, capital)
+        if s:
+            # Alert Logic
+            status = ""
+            if s['rsi'] > 70: status = "🚩 Overbought"
+            elif s['rsi'] < 30: status = "🟢 Oversold"
+            else: status = "⚖️ Neutral"
+
+            market_100.append({
+                "Ticker": t.replace(".CA", ""), 
+                "Price": round(s['price'], 2), 
+                "Status": status,
+                "RSI": round(s['rsi'], 1),
+                "Buy Range": f"{s['buy_range'][0]:.2f}-{s['buy_range'][1]:.2f}",
+                "Target TP": round(s['tp'], 2), 
+                "Safety SL": round(s['sl'], 2)
+            })
+            
+    if market_100:
+        st.dataframe(pd.DataFrame(market_100), use_container_width=True, hide_index=True)
 
 with tab2:
     selected = st.selectbox("Analyze Ticker", TICKERS)
