@@ -103,7 +103,7 @@ for i, (name, sym) in enumerate(indices.items()):
     except: pass
 
 st.divider()
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Market Pulse", "🔍 Deep Insight", "⚖️ Portfolio", "🗓️ Macro"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Market Pulse", "🔍 Deep Insight", "⚖️ Portfolio", "🗓️ CBE"])
 
 # --- TAB 1: MARKET PULSE (EGX 30 & 100) ---
 with tab1:
