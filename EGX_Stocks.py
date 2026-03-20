@@ -7,64 +7,28 @@ from plotly.subplots import make_subplots
 from datetime import datetime
 import numpy as np
 
-# --- 1. Page Configuration & Professional CSS ---
+# --- 1. Page Configuration ---
 st.set_page_config(page_title="EGX Alpha Pro 2026", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
     .main { background-color: #0e1117; }
-    [data-testid="stMetric"] {
-        background-color: #ffffff !important; 
-        border: 2px solid #238636;
-        padding: 15px; border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }
-    [data-testid="stMetricLabel"] p { color: #1a1a1a !important; font-size: 1.1rem !important; font-weight: 700 !important; }
+    [data-testid="stMetric"] { background-color: #ffffff !important; border: 2px solid #238636; padding: 15px; border-radius: 12px; }
+    [data-testid="stMetricLabel"] p { color: #1a1a1a !important; font-weight: 700 !important; }
     [data-testid="stMetricValue"] { color: #000000 !important; }
-    
-    .status-card { 
-        background: #f8f9fa; color: #1a1a1a; padding: 20px; 
-        border-radius: 10px; border-left: 8px solid #238636; 
-        margin-bottom: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-    }
-    .status-card h2 { color: #0e1117 !important; margin-top:0; }
+    .status-card { background: #f8f9fa; color: #1a1a1a; padding: 20px; border-radius: 10px; border-left: 8px solid #238636; margin-bottom: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
+    .status-card h3 { color: #0e1117 !important; margin: 0; }
     .news-card { font-size: 0.85rem; padding: 10px; border-bottom: 1px solid #30363d; color: #e6edf3; }
-    .sentiment-tag { padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.8rem; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. Core Functions ---
+# --- 2. Core Logic Functions ---
 def clean_df(df):
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+    if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
     return df
 
-def get_sentiment(news_list):
-    if not news_list: return "Neutral ⚪", "#6c757d"
-    score = 0
-    bullish_words = ['growth', 'profit', 'increase', 'up', 'buy', 'positive', 'gain', 'dividend', 'expand']
-    bearish_words = ['drop', 'loss', 'decrease', 'down', 'sell', 'negative', 'risk', 'inflation', 'debt']
-    for n in news_list:
-        title = n['title'].lower()
-        score += sum(1 for word in bullish_words if word in title)
-        score -= sum(1 for word in bearish_words if word in title)
-    if score > 0: return "Bullish 🟢", "#238636"
-    if score < 0: return "Bearish 🔴", "#d73a49"
-    return "Neutral ⚪", "#6c757d"
-
-def calculate_risk_grade(rsi, atr, price):
-    vol = (atr / price) * 100
-    score = 100
-    if rsi > 70 or rsi < 30: score -= 20
-    if vol > 4: score -= 20
-    elif vol > 2: score -= 10
-    if score >= 90: return "A (Safe)"
-    elif score >= 80: return "B (Moderate)"
-    elif score >= 70: return "C (Speculative)"
-    else: return "F (High Risk)"
-
 @st.cache_data(ttl=300)
-def get_analysis(ticker, target_profit, capital):
+def get_analysis(ticker, target_profit, capital, sl_mult=2.0):
     try:
         df = clean_df(yf.download(ticker, period="6mo", interval="1d", progress=False))
         if df.empty or len(df) < 20: return None
@@ -72,138 +36,127 @@ def get_analysis(ticker, target_profit, capital):
         df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
         curr, atr, rsi_val = float(df['Close'].iloc[-1]), float(df['ATR'].iloc[-1]), float(df['RSI'].iloc[-1])
         tp = curr * (1 + (target_profit / capital))
-        sl = curr - (atr * 2)
-        est_days = (tp - curr) / (atr * 0.7) if atr > 0 else 0
-        rr = (tp - curr) / (curr - sl) if (curr - sl) > 0 else 0
+        sl = curr - (atr * sl_mult)
         return {
-            "df": df, "price": curr, "rsi": rsi_val, "tp": tp, "sl": sl, 
-            "est_days": int(est_days), "rr_ratio": round(rr, 1),
-            "buy_range": (curr - (atr * 0.5), curr + (atr * 0.1)),
-            "grade": calculate_risk_grade(rsi_val, atr, curr)
+            "df": df, "price": curr, "rsi": rsi_val, "atr": atr, "tp": tp, "sl": sl, 
+            "rr_ratio": round((tp-curr)/(curr-sl), 1) if (curr-sl) != 0 else 0,
+            "buy_range": (curr - (atr * 0.5), curr + (atr * 0.1))
         }
     except: return None
 
-# --- 3. Sidebar & Ticker Lists ---
-st.sidebar.title("🎯 Goal Settings")
-capital = st.sidebar.number_input("Total Capital (EGP)", value=100000)
-target_gain = st.sidebar.number_input("Target Profit (EGP)", value=10000)
+def run_backtest(ticker, start_inv, tp_pct, rsi_lvl, sl_mult):
+    df = clean_df(yf.download(ticker, period="1y", interval="1d", progress=False))
+    if df.empty: return pd.DataFrame(), start_inv
+    df['RSI'] = ta.rsi(df['Close'], length=14); df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
+    df = df.dropna()
+    balance, position, entry_p, logs = start_inv, 0, 0, []
 
-egx30_list = ["COMI.CA", "TMGH.CA", "SWDY.CA", "ETEL.CA", "ABUK.CA", "ORAS.CA", "HRHO.CA"]
-egx100_list = ["FWRY.CA", "AMOC.CA", "EKHO.CA", "JUFO.CA", "MNHD.CA", "HELI.CA", "PHDC.CA", "ISPH.CA"]
+    for i in range(len(df)):
+        curr_p, curr_rsi, curr_atr, date = df['Close'].iloc[i], df['RSI'].iloc[i], df['ATR'].iloc[i], df.index[i]
+        if position > 0:
+            target, stop = entry_p * (1 + tp_pct) , entry_p - (sl_mult * curr_atr)
+            if curr_p >= target or curr_p <= stop:
+                balance = position * curr_p
+                res = "PROFIT ✅" if curr_p >= target else "LOSS ❌"
+                logs.append({"Date": date.strftime('%Y-%m-%d'), "Action": "SELL", "Price": round(curr_p, 2), "Result": res, "Balance": round(balance, 2)})
+                position = 0
+        elif curr_rsi <= rsi_lvl and balance > 0:
+            entry_p = curr_p; position = balance / entry_p
+            logs.append({"Date": date.strftime('%Y-%m-%d'), "Action": "BUY", "Price": round(curr_p, 2), "Result": "-", "Balance": round(balance, 2)})
+    final = balance if position == 0 else position * df['Close'].iloc[-1]
+    return pd.DataFrame(logs), final
 
-# --- 4. Main UI Header ---
+# --- 3. Sidebar & Signal Bot ---
+st.sidebar.title("🤖 Terminal Control")
+capital = st.sidebar.number_input("Global Capital (EGP)", value=100000)
+target_gain = st.sidebar.number_input("Profit Target (EGP)", value=10000)
+sl_slider = st.sidebar.slider("ATR SL Multiplier", 1.5, 4.0, 2.0)
+
+egx_list = ["COMI.CA", "TMGH.CA", "SWDY.CA", "ETEL.CA", "ABUK.CA", "ORAS.CA", "FWRY.CA", "PHDC.CA"]
+
+st.sidebar.divider()
+bot_on = st.sidebar.toggle("Activate Signal Bot")
+bot_tick = st.sidebar.selectbox("Bot Monitoring", egx_list)
+if bot_on:
+    b = get_analysis(bot_tick, target_gain, capital, sl_slider)
+    if b and b['buy_range'][0] <= b['price'] <= b['buy_range'][1] and b['rsi'] < 60:
+        st.sidebar.success(f"🔥 SIGNAL: Buy {bot_tick} @ {b['price']:.2f}")
+        st.toast(f"Buy Alert: {bot_tick}!", icon="💰")
+    else: st.sidebar.warning("⏳ Tracking Markets...")
+
+# --- 4. Main App Tabs ---
 st.title("EGX Alpha Terminal 🛡️")
-indices = {"EGX 30": "^EGX30", "EGX 70": "^EGX70EWI", "EGX 100": "^EGX100EWI", "EGX 33": "SHARIAH.CA"}
-idx_cols = st.columns(4)
-for i, (name, sym) in enumerate(indices.items()):
-    try:
-        idx_df = clean_df(yf.download(sym, period="5d", progress=False))
-        curr, prev = idx_df['Close'].iloc[-1], idx_df['Close'].iloc[-2]
-        idx_cols[i].metric(label=name, value=f"{curr:,.0f}", delta=f"{((curr-prev)/prev)*100:+.2f}%")
-    except: pass
+t1, t2, t3, t4, t5 = st.tabs(["📊 Market Pulse", "🔍 Deep Insight", "🧪 Backtest", "⚖️ Portfolio Tracker", "🗓️ Macro Calendar"])
 
-st.divider()
-tab1, tab2, tab3, tab4, tab5= st.tabs(["📊 Market Pulse", "🔍 Deep Insight", "⚖️ Portfolio", "🗓️ CBE", " Simulation"])
+# TAB 1: PULSE
+with t1:
+    st.subheader("Live Market Scanner")
+    m_data = []
+    for t in egx_list:
+        s = get_analysis(t, target_gain, capital, sl_slider)
+        if s: m_data.append({"Ticker": t.replace(".CA",""), "Price": round(s['price'],2), "RSI": round(s['rsi'],1), "TP": round(s['tp'],2), "SL": round(s['sl'],2)})
+    st.dataframe(pd.DataFrame(m_data), use_container_width=True, hide_index=True)
 
-# --- TAB 1: MARKET PULSE (EGX 30 & 100) ---
-with tab1:
-    st.subheader("🔵 EGX 30 Blue Chips")
-    m30 = []
-    for t in egx30_list:
-        s = get_analysis(t, target_gain, capital)
-        if s: m30.append({"Ticker": t.replace(".CA",""), "Price": round(s['price'],2), "Grade": s['grade'], "RSI": round(s['rsi'],1), "TP": round(s['tp'],2), "SL": round(s['sl'],2)})
-    st.dataframe(pd.DataFrame(m30), use_container_width=True, hide_index=True)
-
-    st.subheader("🟠 EGX 100 Growth & Mid-Caps")
-    m100 = []
-    for t in egx100_list:
-        s = get_analysis(t, target_gain, capital)
-        if s: m100.append({"Ticker": t.replace(".CA",""), "Price": round(s['price'],2), "Grade": s['grade'], "RSI": round(s['rsi'],1), "TP": round(s['tp'],2), "SL": round(s['sl'],2)})
-    st.dataframe(pd.DataFrame(m100), use_container_width=True, hide_index=True)
-
-# --- TAB 2: DEEP INSIGHT ---
-with tab2:
-    selected = st.selectbox("Analyze Asset", egx30_list + egx100_list)
-    analysis = get_analysis(selected, target_gain, capital)
-    ticker_obj = yf.Ticker(selected)
-    news = ticker_obj.news[:5]
-    sent_text, sent_color = get_sentiment(news)
-
-    if analysis:
+# TAB 2: INSIGHT
+with t2:
+    sel = st.selectbox("Detailed Analysis", egx_list)
+    an = get_analysis(sel, target_gain, capital, sl_slider)
+    if an:
         c1, c2 = st.columns([2, 1])
         with c1:
-            df_p = analysis['df'].tail(60)
-            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
-            fig.add_trace(go.Candlestick(x=df_p.index, open=df_p['Open'], high=df_p['High'], low=df_p['Low'], close=df_p['Close'], name="Price"), row=1, col=1)
-            fig.update_layout(height=450, template="plotly_dark", xaxis_rangeslider_visible=False, margin=dict(l=0,r=0,t=0,b=0))
+            fig = go.Figure(data=[go.Candlestick(x=an['df'].index[-60:], open=an['df']['Open'][-60:], high=an['df']['High'][-60:], low=an['df']['Low'][-60:], close=an['df']['Close'][-60:])])
+            fig.update_layout(template="plotly_dark", height=400, margin=dict(l=0,r=0,t=0,b=0), xaxis_rangeslider_visible=False)
             st.plotly_chart(fig, use_container_width=True)
-            for n in news[:2]:
-                st.markdown(f"<div class='news-card'><b>{n['title']}</b><br><small>{datetime.fromtimestamp(n['providerPublishTime']).strftime('%Y-%m-%d')}</small></div>", unsafe_allow_html=True)
-
         with c2:
-            st.markdown(f"""
-            <div class="status-card">
-                <h2 style="margin-bottom:0;">{selected.replace(".CA","")}</h2>
-                <span class="sentiment-tag" style="background:{sent_color}; color:white;">Sentiment: {sent_text}</span>
-                <p style="font-size: 1.5rem; font-weight: bold; margin-top:10px;">{analysis['price']:.2f} EGP</p>
-                <div style="background:#e9ecef; padding:12px; border-radius:8px; margin:10px 0;">
-                    <p><b>Risk Grade:</b> {analysis['grade']}</p>
-                    <p><b>R/R Ratio:</b> 1 : {analysis['rr_ratio']}</p>
-                    <p><b>Est. Time:</b> ~{analysis['est_days']} Days</p>
-                </div>
-                <p style='color:#1e7e34; font-weight: bold;'>🟢 Entry: {analysis['buy_range'][0]:.2f}-{analysis['buy_range'][1]:.2f}</p>
-                <p style='color:#0056b3; font-weight: bold;'>🔵 Target: {analysis['tp']:.2f}</p>
-                <p style='color:#d73a49; font-weight: bold;'>🔴 Stop: {analysis['sl']:.2f}</p>
-            </div>
-            """, unsafe_allow_html=True)
-            report = pd.DataFrame([{"Ticker": selected, "Price": analysis['price'], "Target": round(analysis['tp'],2)}])
-            st.download_button("📥 Trade Sheet", report.to_csv(index=False).encode('utf-8'), f"{selected}.csv", "text/csv", use_container_width=True)
+            st.markdown(f"""<div class='status-card'><h3>{sel.replace(".CA","")}</h3><b>Price: {an['price']:.2f} EGP</b><hr>🟢 Entry: {an['buy_range'][0]:.2f}<br>🔵 Target: {an['tp']:.2f}<br>🔴 Stop: {an['sl']:.2f}</div>""", unsafe_allow_html=True)
 
-# --- TAB 3: PORTFOLIO & HEATMAP ---
-with tab3:
-    st.subheader("🔥 Sector Heatmap")
-    hcols = st.columns(5)
-    sects = [("Real Estate", 4.8, "🌊"), ("Banking", 1.2, "⚖️"), ("Fintech", 3.5, "🚀"), ("Resources", -2.1, "📉"), ("Industrials", 2.9, "🏗️")]
-    for i, (n, p, e) in enumerate(sects):
-        c = "#238636" if p > 0 else "#d73a49"
-        hcols[i].markdown(f"<div style='background:{c}; padding:10px; border-radius:8px; text-align:center; color:white;'><b>{n}</b><br>{p:+.1f}% {e}</div>", unsafe_allow_html=True)
-    
-    st.divider()
-    st.subheader("💼 Live Portfolio Tracker")
-    p_ticker = st.selectbox("Select Owned Ticker", egx30_list + egx100_list)
-    p_cols = st.columns(3)
-    buy_p = p_cols[0].number_input("Avg Buy Price", value=0.0)
-    qty = p_cols[1].number_input("Quantity", value=0)
-    p_data = get_analysis(p_ticker, target_gain, capital)
-    if p_data and buy_p > 0:
-        gain = (p_data['price'] - buy_p) * qty
-        p_cols[2].metric("Live P/L", f"{gain:,.2f} EGP", f"{(gain/(buy_p*qty))*100:+.2f}%" if (buy_p*qty)>0 else "0%")
-
-# --- TAB 4: MACRO & CALENDAR ---
-with tab4:
-    c1, c2 = st.columns(2)
-    with c1:
-        st.subheader("🗓️ CBE MPC Meetings")
-        st.table(pd.DataFrame([{"Meeting": "MPC 2", "Date": "2026-04-02"}, {"Meeting": "MPC 3", "Date": "2026-05-21"}]))
-    with c2:
-        st.subheader("🚀 Rate Cut Simulator")
-        sim = st.slider("Simulated Cut (bps)", 0, 200, 100)
-        st.info(f"A {sim}bps cut targets a ~{ (sim/100)*4 :.1f}% market valuation boost.")
-# Tab5h: Backtest (The Simulator)
-with tab5:
-    st.subheader("🧪 Historical Strategy Simulator")
+# TAB 3: BACKTEST
+with t3:
+    st.subheader("🧪 Strategy Backtest Simulator")
     bc1, bc2, bc3 = st.columns(3)
-    bt_tk = bc1.selectbox("Stock", egx30 + egx100, key="bt_tk")
+    bt_tk = bc1.selectbox("Simulate Ticker", egx_list, key="bt_main")
     bt_inv = bc2.number_input("Investment (EGP)", value=20000)
     bt_rsi = bc3.slider("Buy RSI Threshold", 20, 50, 30)
-    
-    if st.button("Run 1-Year Backtest"):
+
+    if st.button("🚀 Run Simulation"):
         logs, f_bal = run_backtest(bt_tk, bt_inv, (target_gain/capital), bt_rsi, sl_slider)
         if not logs.empty:
             st.metric("Final Balance", f"{f_bal:,.2f} EGP", f"{((f_bal-bt_inv)/bt_inv)*100:+.2f}%")
-            st.dataframe(logs, use_container_width=True)
-            fig_bt = go.Figure(data=[go.Scatter(x=logs[logs['Action']=="SELL"]['Date'], y=logs[logs['Action']=="SELL"]['Balance'], mode='lines+markers', line=dict(color='#238636'))])
-            fig_bt.update_layout(title="Equity Growth", template="plotly_dark", height=300)
-            st.plotly_chart(fig_bt, use_container_width=True)
-        else: st.error("No trades triggered. Try increasing the RSI Threshold.")
-st.caption(f"EGX Alpha Pro v16.0 | Sync: {datetime.now().strftime('%H:%M:%S')}")
+            st.dataframe(logs, use_container_width=True, hide_index=True)
+            sell_data = logs[logs['Action']=="SELL"]
+            if not sell_data.empty:
+                fig_bt = go.Figure(data=[go.Scatter(x=sell_data['Date'], y=sell_data['Balance'], mode='lines+markers', line=dict(color='#238636'))])
+                fig_bt.update_layout(title="Backtest Equity Curve", template="plotly_dark", height=300)
+                st.plotly_chart(fig_bt, use_container_width=True)
+        else: st.error("No trades triggered. Try a higher RSI threshold.")
+
+# TAB 4: PORTFOLIO TRACKER (RESTORED)
+with t4:
+    st.subheader("💼 Active Holdings Tracker")
+    p_ticker = st.selectbox("Ticker Owned", egx_list, key="port_select")
+    p_cols = st.columns(3)
+    buy_p = p_cols[0].number_input("Average Buy Price", value=0.0, step=0.1)
+    qty = p_cols[1].number_input("Quantity Owned", value=0, step=1)
+    
+    p_analysis = get_analysis(p_ticker, target_gain, capital, sl_slider)
+    if p_analysis and buy_p > 0 and qty > 0:
+        current_val = p_analysis['price'] * qty
+        initial_inv = buy_p * qty
+        live_pnl = current_val - initial_inv
+        p_cols[2].metric("Live P&L", f"{live_pnl:,.2f} EGP", f"{(live_pnl/initial_inv)*100:+.2f}%")
+        
+        # Portfolio Risk Check
+        if p_analysis['price'] <= p_analysis['sl']:
+            st.error(f"⚠️ EXIT ALERT: {p_ticker} has dropped below your calculated Stop Loss ({p_analysis['sl']:.2f})!")
+        elif p_analysis['price'] >= p_analysis['tp']:
+            st.success(f"💰 TARGET HIT: {p_ticker} has reached your Take Profit goal ({p_analysis['tp']:.2f})!")
+        else:
+            st.info(f"Hold {p_ticker}. Current Price is within the safe range.")
+
+# TAB 5: MACRO
+with t5:
+    st.subheader("CBE Interest Rate Calendar")
+    st.info("The CBE currently maintains a 19% deposit rate. Next update scheduled April 2026.")
+    st.table(pd.DataFrame([{"Event": "MPC Meeting", "Date": "2026-04-02"}, {"Event": "MPC Meeting", "Date": "2026-05-21"}]))
+
+st.caption(f"EGX Alpha v19.0 | Sync: {datetime.now().strftime('%H:%M:%S')}")
