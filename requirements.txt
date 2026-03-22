@@ -5,4 +5,3 @@ plotly
 matplotlib
 pandas_ta
 requests
-time
