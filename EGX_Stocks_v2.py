@@ -7,8 +7,8 @@ import time
 from datetime import datetime
 
 # --- إعدادات تلجرام (يجب ملؤها) ---
-TELEGRAM_TOKEN = "YOUR_BOT_TOKEN"
-TELEGRAM_CHAT_ID = "YOUR_CHAT_ID"
+TELEGRAM_TOKEN = "8707488971:AAHtuqNQ5nmI5muwFsRMGNssKR_b9kDchaU"
+TELEGRAM_CHAT_ID = "1978337209"
 
 def send_telegram_msg(message):
     if TELEGRAM_TOKEN == "YOUR_BOT_TOKEN": return # تخطي إذا لم يتم الضبط
