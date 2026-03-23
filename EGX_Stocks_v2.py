@@ -6,7 +6,7 @@ import requests
 import time
 from datetime import datetime
 
-# --- إعدادات تلجرام ---
+# --- Settings ---
 TELEGRAM_TOKEN = "8707488971:AAHtuqNQ5nmI5muwFsRMGNssKR_b9kDchaU"
 TELEGRAM_CHAT_ID = "1978337209"
 
@@ -23,23 +23,25 @@ def play_sound():
 
 def run_scalping_scan(ticker):
     try:
-        # 1. جلب البيانات مع تعطيل الـ Multi-index الجديد لتجنب الأخطاء
-        df = yf.download(ticker, period="2d", interval="5m", progress=False, multi_level_index=False)
+        # FIX 1: Force non-multi-index columns
+        df = yf.download(ticker, period="2d", interval="5m", progress=False)
         
-        if df.empty or len(df) < 20: 
+        if df.empty or len(df) < 20:
             return None
-        
-        # 2. التأكد من أن الأعمدة بأسماء بسيطة ونوع البيانات رقمي
-        df.columns = [c.capitalize() for c in df.columns]
-        for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
 
-        # 3. حساب المؤشرات (تم إضافة Check للتأكد من وجود VWAP)
+        # FIX 2: Flatten columns if they are MultiIndex
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        
+        # FIX 3: Ensure data is numeric
+        for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        # Calculate Indicators
         df['VWAP'] = ta.vwap(df.High, df.Low, df.Close, df.Volume)
         df['RSI'] = ta.rsi(df.Close, length=14)
         
-        # حذف الصفوف الفارغة (NaN) الناتجة عن الحسابات
+        # Drop rows where indicators couldn't calculate yet
         df.dropna(subset=['VWAP', 'RSI'], inplace=True)
         
         if len(df) < 2: return None
@@ -47,7 +49,7 @@ def run_scalping_scan(ticker):
         last_row = df.iloc[-1]
         prev_row = df.iloc[-2]
         
-        # الشروط
+        # Strategy
         cross_up_vwap = (last_row['Close'] > last_row['VWAP']) and (prev_row['Close'] <= prev_row['VWAP'])
         rsi_positive = last_row['RSI'] > 50
         
@@ -59,11 +61,10 @@ def run_scalping_scan(ticker):
                 "Time": datetime.now().strftime("%H:%M:%S")
             }
     except Exception as e:
-        # سيظهر الخطأ في الكونسول (Terminal) لمعرفته
-        print(f"Error in {ticker}: {str(e)}")
+        st.error(f"Error in {ticker}: {e}") # This will show the error on screen!
     return None
 
-# --- واجهة Streamlit ---
+# --- UI ---
 st.set_page_config(page_title="EGX AI Sniper", layout="wide")
 st.title("EGX AI Sniper Scanner 🎯")
 
@@ -79,7 +80,7 @@ if st.session_state.running:
     status_msg = st.empty()
     progress_bar = st.progress(0)
     timer_text = st.empty()
-    results_table = st.empty()
+    results_area = st.container()
 
     while True:
         status_msg.info(f"🔍 Scanning symbols at {datetime.now().strftime('%H:%M:%S')}...")
@@ -90,22 +91,25 @@ if st.session_state.running:
             if res:
                 all_hits.append(res)
         
-        if all_hits:
-            play_sound()
-            results_table.table(all_hits)
-            msg = "🎯 *EGX Alert!*\n" + "\n".join([f"✅ {h['Ticker']}: {h['Price']}" for h in all_hits])
-            send_telegram_msg(msg)
-        else:
-            results_table.write("No signals found in this round.")
+        with results_area:
+            if all_hits:
+                play_sound()
+                st.success(f"🚨 Found {len(all_hits)} signals!")
+                st.table(all_hits)
+                msg = "🎯 *EGX Alert!*\n" + "\n".join([f"✅ {h['Ticker']}: {h['Price']}" for h in all_hits])
+                send_telegram_msg(msg)
+            else:
+                st.write(f"No signals at {datetime.now().strftime('%H:%M:%S')}. Waiting...")
 
-        # --- العداد التنازلي ---
+        # --- Countdown ---
         wait_time = 300
         for i in range(wait_time, 0, -1):
             timer_text.metric("Next Scan In", f"{i // 60:02d}:{i % 60:02d}")
             progress_bar.progress((wait_time - i) / wait_time)
             time.sleep(1)
         
+        # Handle different Streamlit versions for rerun
         try:
             st.rerun()
-        except:
+        except AttributeError:
             st.experimental_rerun()
