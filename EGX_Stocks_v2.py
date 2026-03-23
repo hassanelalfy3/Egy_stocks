@@ -51,12 +51,11 @@ def plot_chart(df, ticker, strategy_name, r_thresh=50):
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
                         vertical_spacing=0.05, row_heights=[0.7, 0.3])
 
-    # Price Chart
     fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'],
                                  low=df['Low'], close=df['Close'], name="Price"), row=1, col=1)
 
     if strategy_name == "VWAP + RSI Breakout":
-        fig.add_trace(go.Scatter(x=df.index, y=df['VWAP'], name="VWAP", line=dict(color='orange', width=1.5)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['VWAP'], name="VWAP", line=dict(color='orange', width=2)), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI", line=dict(color='purple')), row=2, col=1)
         fig.add_hline(y=r_thresh, line_dash="dash", line_color="red", row=2, col=1)
 
@@ -68,7 +67,7 @@ def plot_chart(df, ticker, strategy_name, r_thresh=50):
         fig.add_trace(go.Scatter(x=df.index, y=df['U_Band'], name="Upper", line=dict(color='rgba(173, 216, 230, 0.4)', width=1)), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df['L_Band'], name="Lower", line=dict(color='rgba(173, 216, 230, 0.4)', width=1), fill='tonexty'), row=1, col=1)
 
-    fig.update_layout(title=f"PRO CHART: {ticker}", height=500, xaxis_rangeslider_visible=False, template="plotly_dark")
+    fig.update_layout(title=f"LIVE ANALYSIS: {ticker}", height=500, xaxis_rangeslider_visible=False, template="plotly_dark")
     return fig
 
 # --- Data Fetching ---
@@ -122,15 +121,12 @@ if c2.button("🛑 Stop"): st.session_state.active = False
 if st.session_state.active:
     st.info(f"🛰️ Scanning: **{selected_strat}** on **{p_tf}**")
     
-    # Placeholders in specific order: Table first, then Charts
     table_placeholder = st.empty()
-    st.markdown("---")
-    st.subheader("📈 Signal Visualizer (Matched Tickers Only)")
     chart_container = st.container()
 
     while True:
         results = []
-        matched_data = {} # To store df and ticker for matched items
+        matched_data = {}
 
         for ticker in SCAN_LIST:
             df = get_data(ticker, p_tf)
@@ -138,8 +134,7 @@ if st.session_state.active:
                 results.append({"Ticker": ticker, "Status": "⚠️ No Data", "Price": 0.0, "Details": "N/A", "Last Update": "N/A", "_ts": pd.Timestamp(0).tz_localize(CAIRO_TZ)})
                 continue
             
-            match = False
-            details = "N/A"
+            match, details = False, "N/A"
             if selected_strat == "VWAP + RSI Breakout":
                 match, details = strategy_vwap_rsi(df, params['r_len'], params['r_thresh'])
             elif selected_strat == "MA Golden Cross":
@@ -147,7 +142,6 @@ if st.session_state.active:
             elif selected_strat == "Bollinger Band Reversal":
                 match, details = strategy_bollinger(df, params['b_len'], params['b_std'])
             
-            # Record match for plotting
             if match:
                 matched_data[ticker] = df.copy()
 
@@ -169,18 +163,19 @@ if st.session_state.active:
                 try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={"chat_id": active_id, "text": msg, "parse_mode": "Markdown"})
                 except: pass
 
-        # 1. Update Table (At the top)
+        # Update Table
         if results:
             df_final = pd.DataFrame(results).sort_values(by="_ts", ascending=False).drop(columns=["_ts"])
             table_placeholder.table(df_final)
 
-        # 2. Update Charts (Below table)
+        # Update Charts
+        chart_container.empty() # Clear old charts
         with chart_container:
             if not matched_data:
-                st.write("🔭 No active signals found yet. Still scanning...")
+                st.write("🔭 Scanning... No matches found yet.")
             else:
                 for t, data in matched_data.items():
-                    st.plotly_chart(plot_chart(data, t, selected_strat, params.get('r_thresh', 50)), use_container_width=True)
+                    st.plotly_chart(plot_chart(data, t, selected_strat, params.get('r_thresh', 50)), use_container_width=True, key=f"chart_{t}")
         
         time.sleep(p_interval)
         st.rerun()
