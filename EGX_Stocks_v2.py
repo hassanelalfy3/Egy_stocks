@@ -8,7 +8,7 @@ import requests
 import time
 from datetime import datetime
 
-# --- Telegram Config ---
+# --- إعدادات تلجرام ---
 TOKEN = "8707488971:AAHtuqNQ5nmI5muwFsRMGNssKR_b9kDchaU"
 CHAT_ID = "1978337209"
 
@@ -20,30 +20,23 @@ def send_alert(msg):
         pass
 
 def create_chart(df, ticker):
-    # Create figure with secondary y-axis for RSI
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
                         vertical_spacing=0.05, subplot_titles=(f'{ticker} 5m - Price & VWAP', 'RSI'), 
                         row_heights=[0.7, 0.3])
-
-    # 1. Candlestick Chart
+    # الشموع
     fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'],
                                 low=df['Low'], close=df['Close'], name='Price'), row=1, col=1)
-
-    # 2. VWAP Line
-    fig.add_trace(go.Scatter(x=df.index, y=df['VWAP'], line=dict(color='blue', width=2), name='VWAP'), row=1, col=1)
-
-    # 3. RSI Line
-    fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], line=dict(color='purple', width=2), name='RSI'), row=2, col=1)
-
-    # 4. RSI Thresholds (50 line)
-    fig.add_hline(y=50, line_dash="dash", line_color="red", row=2, col=1)
-
-    fig.update_layout(height=600, template='plotly_dark', showlegend=False, 
-                      xaxis_rangeslider_visible=False)
+    # VWAP
+    fig.add_trace(go.Scatter(x=df.index, y=df['VWAP'], line=dict(color='cyan', width=2), name='VWAP'), row=1, col=1)
+    # RSI
+    fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], line=dict(color='magenta', width=2), name='RSI'), row=2, col=1)
+    fig.add_hline(y=50, line_dash="dash", line_color="white", row=2, col=1)
+    fig.update_layout(height=500, template='plotly_dark', showlegend=False, xaxis_rangeslider_visible=False)
     return fig
 
-def run_scalping_scan(ticker):
+def run_universal_scan(ticker):
     try:
+        # جلب البيانات
         df = yf.download(ticker, period="2d", interval="5m", progress=False, multi_level_index=False)
         if df.empty or len(df) < 30: return None, None
 
@@ -51,6 +44,7 @@ def run_scalping_scan(ticker):
         for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
             df[col] = pd.to_numeric(df[col], errors='coerce').astype(float)
         
+        # المؤشرات
         df['VWAP'] = ta.vwap(high=df.High, low=df.Low, close=df.Close, volume=df.Volume)
         df['RSI'] = ta.rsi(close=df.Close, length=14)
         df.dropna(subset=['VWAP', 'RSI'], inplace=True)
@@ -58,7 +52,7 @@ def run_scalping_scan(ticker):
         last = df.iloc[-1]
         prev = df.iloc[-2]
         
-        # Strategy Logic
+        # استراتيجية الاختراق
         is_signal = (last['Close'] > last['VWAP']) and (prev['Close'] <= prev['VWAP']) and (last['RSI'] > 50)
         
         if is_signal:
@@ -68,12 +62,15 @@ def run_scalping_scan(ticker):
         return None, None
     return None, None
 
-# --- Streamlit UI ---
-st.set_page_config(page_title="EGX Chart Sniper", layout="wide", page_icon="📈")
-st.title("📈 EGX Sniper with Interactive Charts")
+# --- الواجهة ---
+st.set_page_config(page_title="Universal Sniper", layout="wide")
+st.title("🎯 Universal Sniper (Stocks & Gold)")
 
-SCAN_LIST = st.sidebar.text_area("Tickers:", "COMI.CA, FWRY.CA, TMGH.CA, SWDY.CA").split(",")
-SCAN_LIST = [t.strip().upper() for t in SCAN_LIST if t.strip()]
+# مدخلات المستخدم للرموز
+st.sidebar.header("Scan List")
+st.sidebar.info("Gold: GC=F or XAUUSD=X\nEGX: COMI.CA, etc.")
+user_tickers = st.sidebar.text_area("Enter Tickers (comma separated):", "GC=F, COMI.CA, FWRY.CA, TMGH.CA")
+SCAN_LIST = [t.strip().upper() for t in user_tickers.split(",") if t.strip()]
 
 if "active" not in st.session_state: st.session_state.active = False
 
@@ -85,17 +82,15 @@ if st.session_state.active:
     chart_container = st.container()
     
     while True:
-        status.info(f"🔍 Scanning at {datetime.now().strftime('%H:%M:%S')}")
+        status.info(f"🔍 Scanning {len(SCAN_LIST)} symbols at {datetime.now().strftime('%H:%M:%S')}")
         
         for ticker in SCAN_LIST:
-            res, df_data = run_scalping_scan(ticker)
+            res, df_data = run_universal_scan(ticker)
             if res:
                 with chart_container:
-                    st.success(f"🎯 SIGNAL FOUND: {res['t']} at {res['p']}")
-                    # Display the interactive chart
+                    st.success(f"🎯 SIGNAL: {res['t']} at {res['p']}")
                     st.plotly_chart(create_chart(df_data, res['t']), use_container_width=True)
-                    
-                send_alert(f"🎯 *Signal Found!*\nStock: {res['t']}\nPrice: {res['p']}\nRSI: {res['rsi']}")
+                send_alert(f"🎯 *Signal Found!*\nAsset: {res['t']}\nPrice: {res['p']}\nRSI: {res['rsi']}")
         
-        time.sleep(300)
+        time.sleep(120) # فحص كل دقيقتين
         st.rerun()
