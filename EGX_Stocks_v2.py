@@ -8,16 +8,17 @@ import requests
 import time
 from datetime import datetime
 
-# --- Telegram Config ---
+# --- إعدادات التلجرام ---
 TOKEN = "8707488971:AAHtuqNQ5nmI5muwFsRMGNssKR_b9kDchaU"
 CHAT_ID = "1978337209"
 
 def send_alert(msg):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     try:
-        requests.post(url, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+        response = requests.post(url, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+        return response.status_code == 200
     except:
-        pass
+        return False
 
 def create_chart(df, ticker):
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
@@ -48,43 +49,51 @@ def check_strategy(ticker):
         last = df.iloc[-1]
         prev = df.iloc[-2]
         
-        # Strategy Logic
         is_match = (last['Close'] > last['VWAP']) and (prev['Close'] <= prev['VWAP']) and (last['RSI'] > 50)
-        
         status = "🎯 MATCH" if is_match else "❌ No Match"
         return status, round(last['Close'], 2), round(last['RSI'], 1), df if is_match else None
     except:
         return "Error", 0, 0, None
 
-# --- Streamlit UI ---
+# --- واجهة Streamlit ---
 st.set_page_config(page_title="Universal Sniper", layout="wide")
-st.title("🎯 Universal Sniper Status Board")
+st.title("🎯 Universal Sniper Board")
 
-st.sidebar.header("Scan Settings")
-user_input = st.sidebar.text_area("Tickers (comma separated):", "GC=F, XAUUSD=X, COMI.CA, FWRY.CA, TMGH.CA")
+# --- القائمة الجانبية (Sidebar) ---
+st.sidebar.header("🛠 Control Panel")
+
+# زر اختبار التلجرام
+if st.sidebar.button("🔔 Test Telegram Alert"):
+    test_msg = "🚨 *Test Alert*\n\nYour bot is connected! Everything is working correctly. 🎯"
+    if send_alert(test_msg):
+        st.sidebar.success("✅ Test message sent!")
+    else:
+        st.sidebar.error("❌ Failed to send. Check Token/Chat ID.")
+
+st.sidebar.markdown("---")
+user_input = st.sidebar.text_area("Tickers (comma separated):", "GC=F, XAUUSD=X, COMI.CA, FWRY.CA")
 SCAN_LIST = [t.strip().upper() for t in user_input.split(",") if t.strip()]
 
 if "active" not in st.session_state: st.session_state.active = False
 
 col_btn1, col_btn2 = st.sidebar.columns(2)
 if col_btn1.button("🚀 Start"): st.session_state.active = True
-if col_btn2.button("🛑 Stop"): st.session_state.active = False
+if col_btn2.button("🛑 Stop"): 
+    st.session_state.active = False
+    st.rerun()
 
+# --- محرك البحث (Main Logic) ---
 if st.session_state.active:
-    # الأماكن المخصصة للتحديث الحي
     status_header = st.empty()
     table_placeholder = st.empty()
     chart_container = st.container()
 
     while True:
-        status_header.info(f"🔄 Current Scan Cycle: {datetime.now().strftime('%H:%M:%S')}")
-        
+        status_header.info(f"🔄 Scanning... Last Update: {datetime.now().strftime('%H:%M:%S')}")
         scan_results = []
         
         for ticker in SCAN_LIST:
             status, price, rsi, df_match = check_strategy(ticker)
-            
-            # إضافة النتيجة للقائمة لعرضها في الجدول
             scan_results.append({
                 "Ticker": ticker,
                 "Status": status,
@@ -93,17 +102,14 @@ if st.session_state.active:
                 "Time": datetime.now().strftime("%H:%M:%S")
             })
             
-            # إذا كان هناك تطابق، اعرض الرسم البياني وأرسل تنبيه
             if "🎯" in status:
                 with chart_container:
-                    st.success(f"🚀 SIGNAL FOUND: {ticker} at {price}")
+                    st.success(f"🚀 SIGNAL: {ticker} at {price}")
                     st.plotly_chart(create_chart(df_match, ticker), use_container_width=True)
                 send_alert(f"🎯 *Signal Found!*\nAsset: {ticker}\nPrice: {price}\nRSI: {rsi}")
 
-        # تحديث الجدول الحي في كل دورة
         df_display = pd.DataFrame(scan_results)
         table_placeholder.table(df_display)
         
-        # الانتظار قبل الدورة القادمة
         time.sleep(120) 
         st.rerun()
