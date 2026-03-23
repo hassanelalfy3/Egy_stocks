@@ -7,18 +7,18 @@ from plotly.subplots import make_subplots
 import requests
 import time
 from datetime import datetime
-import pytz # مكتبة ضبط المناطق الزمنية
+import pytz
 
-# --- إعدادات المنطقة الزمنية ---
-TIMEZONE = pytz.timezone('Etc/GMT-2') # GMT+2 
+# --- إعدادات المنطقة الزمنية (القاهرة) ---
+CAIRO_TZ = pytz.timezone('Africa/Cairo')
 
-# --- إعدادات التلجرام الافتراضية ---
+# --- إعدادات التلجرام ---
 BOT_TOKEN = "8707488971:AAHtuqNQ5nmI5muwFsRMGNssKR_b9kDchaU"
 DEFAULT_CHAT_ID = "1978337209"
 
-def get_now_str():
-    """وظيفة للحصول على الوقت الحالي بتوقيت GMT+2"""
-    return datetime.now(TIMEZONE).strftime("%H:%M:%S")
+def get_cairo_now():
+    """الحصول على الوقت الحالي في القاهرة بتنسيق نصي"""
+    return datetime.now(CAIRO_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
 def send_alert(msg, chat_id):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -27,11 +27,11 @@ def send_alert(msg, chat_id):
     except: pass
 
 def create_chart(df, ticker, rsi_val, tf):
-    # تحويل وقت الشارت إلى GMT+2 إذا لزم الأمر
-    df.index = df.index.tz_convert(TIMEZONE)
+    # التأكد من تحويل توقيت البيانات في الرسم البياني للقاهرة
+    df.index = df.index.tz_convert(CAIRO_TZ)
     
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1, 
-                        subplot_titles=(f'{ticker} ({tf}) - GMT+2', 'RSI'), row_heights=[0.7, 0.3])
+                        subplot_titles=(f'{ticker} ({tf}) - Cairo Time', 'RSI'), row_heights=[0.7, 0.3])
     
     fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='Price'), row=1, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=df['VWAP'], line=dict(color='yellow', width=2), name='VWAP'), row=1, col=1)
@@ -43,45 +43,54 @@ def create_chart(df, ticker, rsi_val, tf):
 
 def check_strategy(ticker, r_len, r_thresh, tf):
     try:
+        # محاولة جلب البيانات بالفاصل المختار
         period_map = {"1m": "1d", "5m": "5d", "15m": "7d", "30m": "30d", "1h": "60d"}
         df = yf.download(ticker, period=period_map.get(tf, "5d"), interval=tf, progress=False, multi_level_index=False)
         
-        if df.empty or len(df) < r_len: return "⚠️ No Data", 0, 0, None, "N/A"
+        # Fallback: إذا لم تتوفر بيانات للفاصل الصغير (مثل COMI.CA الآن)، جرب فاصل ساعة
+        if df.empty or len(df) < r_len:
+            df = yf.download(ticker, period="60d", interval="1h", progress=False, multi_level_index=False)
+            if df.empty: return "⚠️ No Data", 0.0, 0.0, None, "N/A"
 
         df.columns = [str(c).capitalize() for c in df.columns]
+        
+        # حساب المؤشرات
         df['VWAP'] = ta.vwap(high=df.High, low=df.Low, close=df.Close, volume=df.Volume)
         df['RSI'] = ta.rsi(close=df.Close, length=r_len)
         df.dropna(subset=['VWAP', 'RSI'], inplace=True)
+        
+        if df.empty: return "⚠️ Market Closed", 0.0, 0.0, None, "N/A"
 
-        # تحويل وقت آخر شمعة إلى GMT+2
-        last_candle_time = df.index[-1].astimezone(TIMEZONE).strftime("%H:%M")
+        # تحويل وقت آخر شمعة لتوقيت القاهرة (تاريخ وساعة)
+        last_candle_cairo = df.index[-1].astimezone(CAIRO_TZ).strftime("%d/%m %H:%M")
         
         last = df.iloc[-1]
         prev = df.iloc[-2]
         
+        # فحص الاستراتيجية
         is_match = (last['Close'] > last['VWAP']) and (prev['Close'] <= prev['VWAP']) and (last['RSI'] > r_thresh)
         status = "🎯 MATCH" if is_match else "❌ No Match"
         
-        return status, round(last['Close'], 2), round(last['RSI'], 1), df, last_candle_time
-    except:
-        return "Error", 0, 0, None, "N/A"
+        return status, round(float(last['Close']), 2), round(float(last['RSI']), 1), df, last_candle_cairo
+    except Exception as e:
+        return f"Err: {str(e)[:10]}", 0.0, 0.0, None, "N/A"
 
 # --- UI Layout ---
-st.set_page_config(page_title="Sniper GMT+2", layout="wide")
-st.title(f"🎯 Strategy Sniper | {get_now_str()} (GMT+2)")
+st.set_page_config(page_title="Egypt Market Sniper", layout="wide")
+st.title(f"🎯 Cairo Sniper | {get_cairo_now()}")
 
-# --- Sidebar ---
-st.sidebar.header("📱 User Settings")
-active_chat_id = st.sidebar.text_input("Telegram Chat ID:", value=DEFAULT_CHAT_ID)
+# Sidebar
+st.sidebar.header("📱 User Access")
+active_id = st.sidebar.text_input("Telegram Chat ID:", value=DEFAULT_CHAT_ID)
 
-st.sidebar.header("⚙️ Strategy Settings")
+st.sidebar.header("⚙️ Settings")
 p_tf = st.sidebar.selectbox("Timeframe", ["1m", "5m", "15m", "30m", "1h"], index=1)
 p_rsi_len = st.sidebar.number_input("RSI Length", 2, 50, 14)
 p_rsi_thresh = st.sidebar.slider("RSI Threshold", 10, 90, 50)
 p_interval = st.sidebar.select_slider("Refresh (Sec)", options=[30, 60, 120, 300], value=60)
 
 st.sidebar.markdown("---")
-tickers_input = st.sidebar.text_area("Tickers:", "GC=F, NVDA, TSLA, BTC-USD, COMI.CA")
+tickers_input = st.sidebar.text_area("Tickers:", "GC=F, NVDA, BTC-USD, COMI.CA, FWRY.CA")
 SCAN_LIST = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
 
 if "active" not in st.session_state: st.session_state.active = False
@@ -91,29 +100,28 @@ if c2.button("🛑 Stop"): st.session_state.active = False
 
 # --- Main Logic ---
 if st.session_state.active:
-    st.info(f"🛰️ Scanner Running (GMT+2) | Target: {active_chat_id}")
+    st.info(f"🛰️ Active Scan (Cairo Time) | Refresh: {p_interval}s")
     table_placeholder = st.empty()
     charts_area = st.container()
 
     while True:
         results = []
-        current_gmt2 = get_now_str()
-        
         for ticker in SCAN_LIST:
-            status, price, rsi_now, df_full, candle_time = check_strategy(ticker, p_rsi_len, p_rsi_thresh, p_tf)
+            status, price, rsi_val, df_full, last_time = check_strategy(ticker, p_rsi_len, p_rsi_thresh, p_tf)
+            
             results.append({
                 "Ticker": ticker, 
                 "Status": status, 
                 "Price": price, 
-                "RSI": rsi_now, 
-                "Last Candle (GMT+2)": candle_time
+                "RSI": rsi_val, 
+                "Last Candle (Cairo)": last_time
             })
             
             if status == "🎯 MATCH":
                 with charts_area:
-                    st.success(f"🚀 Signal: {ticker} matched at {current_gmt2}")
+                    st.success(f"🚀 {ticker} MATCH at {last_time} Cairo Time")
                     st.plotly_chart(create_chart(df_full, ticker, p_rsi_thresh, p_tf), use_container_width=True)
-                send_alert(f"🎯 *MATCH!*\nAsset: {ticker}\nPrice: {price}\nTime: {candle_time} (GMT+2)", active_chat_id)
+                send_alert(f"🎯 *MATCH!*\nAsset: {ticker}\nPrice: {price}\nTime: {last_time} Cairo", active_id)
 
         table_placeholder.table(pd.DataFrame(results))
         time.sleep(p_interval)
