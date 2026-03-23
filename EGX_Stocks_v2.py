@@ -101,7 +101,7 @@ elif selected_strat == "Bollinger Band Reversal":
     params['b_std'] = st.sidebar.slider("Standard Deviation", 1.0, 4.0, 2.0, 0.5)
 
 p_tf = st.sidebar.selectbox("Timeframe", ["1m", "5m", "15m", "30m", "1h", "1d", "5d", "1M", "3M", "6M", "YTD"], index=5)
-tickers_input = st.sidebar.text_area("Tickers", "GC=F, NVDA, BTC-USD, COMI.CA, FWRY.CA, ETH-USD")
+tickers_input = st.sidebar.text_area("Tickers", "GC=F, COMI.CA, TMGH.CA, HRHO.CA, FWRY.CA, EAST.CA, ETEL.CA, ABUK.CA, ADIB.CA, EFIH.CA, ATLC.CA")
 SCAN_LIST = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
 p_interval = st.sidebar.select_slider("Refresh (Sec)", options=[30, 60, 120, 300], value=60)
 
