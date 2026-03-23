@@ -121,7 +121,7 @@ SCAN_LIST = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
 
 if "active" not in st.session_state: st.session_state.active = False
 c1, c2 = st.sidebar.columns(2)
-if c1.button("🚀 Start Engine"): st.session_state.active = True
+if c1.button("🚀 Start"): st.session_state.active = True
 if c2.button("🛑 Stop"): st.session_state.active = False
 
 # --- Logic Engine ---
