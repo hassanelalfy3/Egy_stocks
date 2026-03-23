@@ -111,7 +111,7 @@ p_tf = st.sidebar.selectbox(
     index=5 # Default to 1D
 )
 
-tickers_input = st.sidebar.text_area("Tickers", "GC=F, NVDA, BTC-USD, COMI.CA, FWRY.CA, ETH-USD")
+tickers_input = st.sidebar.text_area("Tickers", "GC=F, COMI.CA, TMGH.CA, HRHO.CA, FWRY.CA, EAST.CA, ETEL.CA, ABUK.CA, ADIB.CA, EFIH.CA, ATLC.CA")
 SCAN_LIST = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
 p_interval = st.sidebar.select_slider("Refresh (Sec)", options=[30, 60, 120, 300], value=60)
 
