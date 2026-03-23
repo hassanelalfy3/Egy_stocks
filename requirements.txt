@@ -1,7 +1,9 @@
 streamlit
 yfinance
 pandas
-plotly
-matplotlib
 pandas_ta
 requests
+scipy
+lxml
+plotly
+matplotlib
