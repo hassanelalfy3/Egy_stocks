@@ -16,8 +16,6 @@ DEFAULT_CHAT_ID = "1978337209"
 
 # --- Strategy Logic ---
 def strategy_vwap_rsi(df, r_len, r_thresh):
-    # Note: VWAP is typically an intraday indicator. For 1D+ intervals, 
-    # it acts as a Cumulative Moving Average.
     df['VWAP'] = ta.vwap(high=df.High, low=df.Low, close=df.Close, volume=df.Volume)
     df['RSI'] = ta.rsi(close=df.Close, length=r_len)
     df.dropna(subset=['VWAP', 'RSI'], inplace=True)
@@ -48,44 +46,30 @@ def strategy_bollinger(df, b_len, b_std):
 
 # --- Enhanced Data Fetching ---
 def get_data(ticker, tf):
-    # Define mapping for interval -> required data period
-    # Intraday (1m-1h) has strict period limits. Daily+ (1d-1mo) can go back years.
     period_map = {
         "1m": "1d", "5m": "5d", "15m": "7d", "30m": "30d", "1h": "60d",
         "1d": "max", "5d": "max", "1M": "max", "3M": "max", "6M": "max", "YTD": "ytd"
     }
-    
-    # Internal interval mapping for yfinance
     yf_interval_map = {
         "1d": "1d", "5d": "1d", "1M": "1d", "3M": "1d", "6M": "1d", "YTD": "1d",
         "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h"
     }
-
     try:
-        df = yf.download(
-            ticker, 
-            period=period_map.get(tf, "60d"), 
-            interval=yf_interval_map.get(tf, "1h"), 
-            progress=False, 
-            multi_level_index=False
-        )
-        
-        if df.empty or len(df) < 10:
-            return pd.DataFrame()
-            
+        df = yf.download(ticker, period=period_map.get(tf, "60d"), interval=yf_interval_map.get(tf, "1h"), progress=False, multi_level_index=False)
+        if df.empty or len(df) < 10: return pd.DataFrame()
         df.columns = [str(c).capitalize() for c in df.columns]
         return df
-    except:
-        return pd.DataFrame()
+    except: return pd.DataFrame()
 
 # --- Plotting ---
-def plot_chart(df, ticker, strategy_name):
+def plot_chart(df, ticker, strategy_name, current_params):
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
     fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Price"), row=1, col=1)
     
     if strategy_name == "VWAP + RSI Breakout":
         fig.add_trace(go.Scatter(x=df.index, y=df['VWAP'], name="VWAP", line=dict(color='orange', width=2)), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI", line=dict(color='purple')), row=2, col=1)
+        fig.add_hline(y=current_params.get('r_thresh', 50), line_dash="dash", line_color="red", row=2, col=1)
     elif strategy_name == "MA Golden Cross":
         fig.add_trace(go.Scatter(x=df.index, y=df['Fast'], name="Fast", line=dict(color='cyan')), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df['Slow'], name="Slow", line=dict(color='magenta')), row=1, col=1)
@@ -100,18 +84,24 @@ def plot_chart(df, ticker, strategy_name):
 st.set_page_config(page_title="Sniper Pro", layout="wide")
 st.title(f"🚀 Sniper Engine | {datetime.now(CAIRO_TZ).strftime('%H:%M:%S')}")
 
+# SIDEBAR PARAMETERS (RESTORED)
 st.sidebar.header("Strategy Settings")
 active_id = st.sidebar.text_input("Telegram ID", value=DEFAULT_CHAT_ID)
 selected_strat = st.sidebar.selectbox("Strategy", ["VWAP + RSI Breakout", "MA Golden Cross", "Bollinger Band Reversal"])
 
-# --- Timeframe Selector Update ---
-p_tf = st.sidebar.selectbox(
-    "Timeframe", 
-    ["1m", "5m", "15m", "30m", "1h", "1d", "5d", "1M", "3M", "6M", "YTD"], 
-    index=5 # Default to 1D
-)
+params = {}
+if selected_strat == "VWAP + RSI Breakout":
+    params['r_len'] = st.sidebar.number_input("RSI Period", 2, 50, 14)
+    params['r_thresh'] = st.sidebar.slider("RSI Entry Threshold", 10, 90, 50)
+elif selected_strat == "MA Golden Cross":
+    params['f_ma'] = st.sidebar.number_input("Fast MA Period", 2, 50, 9)
+    params['s_ma'] = st.sidebar.number_input("Slow MA Period", 10, 200, 21)
+elif selected_strat == "Bollinger Band Reversal":
+    params['b_len'] = st.sidebar.number_input("BB Period", 5, 50, 20)
+    params['b_std'] = st.sidebar.slider("Standard Deviation", 1.0, 4.0, 2.0, 0.5)
 
-tickers_input = st.sidebar.text_area("Tickers", "GC=F, COMI.CA, TMGH.CA, HRHO.CA, FWRY.CA, EAST.CA, ETEL.CA, ABUK.CA, ADIB.CA, EFIH.CA, ATLC.CA")
+p_tf = st.sidebar.selectbox("Timeframe", ["1m", "5m", "15m", "30m", "1h", "1d", "5d", "1M", "3M", "6M", "YTD"], index=5)
+tickers_input = st.sidebar.text_area("Tickers", "GC=F, NVDA, BTC-USD, COMI.CA, FWRY.CA, ETH-USD")
 SCAN_LIST = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
 p_interval = st.sidebar.select_slider("Refresh (Sec)", options=[30, 60, 120, 300], value=60)
 
@@ -132,21 +122,21 @@ if st.session_state.active:
 
         for ticker in SCAN_LIST:
             df = get_data(ticker, p_tf)
-            
             if df is None or df.empty:
                 results.append({"Ticker": ticker, "Status": "⚠️ No Data", "Price": 0, "Details": "N/A", "Last Update": "N/A", "_ts": pd.Timestamp(0).tz_localize(CAIRO_TZ)})
                 continue
 
-            match, details = False, "N/A"
-            # Logic stays the same, df is filtered inside strategy functions
+            # APPLYING DYNAMIC PARAMS
+            match = False
+            details = "N/A"
             if selected_strat == "VWAP + RSI Breakout":
-                match, details = strategy_vwap_rsi(df, 14, 50) # Using defaults for brevity, link back to params if needed
+                match, details = strategy_vwap_rsi(df, params['r_len'], params['r_thresh'])
             elif selected_strat == "MA Golden Cross":
-                match, details = strategy_ma_cross(df, 9, 21)
+                match, details = strategy_ma_cross(df, params['f_ma'], params['s_ma'])
             elif selected_strat == "Bollinger Band Reversal":
-                match, details = strategy_bollinger(df, 20, 2.0)
+                match, details = strategy_bollinger(df, params['b_len'], params['b_std'])
 
-            if df.empty: continue
+            if df.empty: continue # Strict gate for safety
 
             raw_ts = df.index[-1]
             if raw_ts.tz is None: raw_ts = raw_ts.tz_localize('UTC').astimezone(CAIRO_TZ)
@@ -165,16 +155,18 @@ if st.session_state.active:
                 try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={"chat_id": active_id, "text": msg, "parse_mode": "Markdown"})
                 except: pass
 
+        # 1. Update Table
         if results:
             df_table = pd.DataFrame(results).sort_values(by="_ts", ascending=False).drop(columns=["_ts"])
             table_placeholder.table(df_table)
 
+        # 2. Update Charts
         with chart_container:
             chart_container.empty()
-            if not matched_data: st.write("🔭 Scanning for matches...")
+            if not matched_data: st.write("🔭 Scanning for signals...")
             else:
                 for t, data in matched_data.items():
-                    st.plotly_chart(plot_chart(data, t, selected_strat), use_container_width=True, key=f"chart_{t}")
+                    st.plotly_chart(plot_chart(data, t, selected_strat, params), use_container_width=True, key=f"chart_{t}")
         
         time.sleep(p_interval)
         st.rerun()
