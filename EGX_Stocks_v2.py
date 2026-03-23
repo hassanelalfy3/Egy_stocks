@@ -70,7 +70,7 @@ selected_strat = st.sidebar.selectbox("Choose Strategy:",
     ["VWAP + RSI Breakout", "MA Golden Cross", "Bollinger Band Reversal"])
 
 #st.sidebar.markdown("---")
-st.sidebar("⚙️ Parameters")
+st.sidebar.selectbox("⚙️ Parameters")
 
 params = {}
 if selected_strat == "VWAP + RSI Breakout":
