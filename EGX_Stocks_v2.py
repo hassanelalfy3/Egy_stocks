@@ -8,7 +8,7 @@ import requests
 import time
 from datetime import datetime
 
-# --- إعدادات تلجرام ---
+# --- Telegram Config ---
 TOKEN = "8707488971:AAHtuqNQ5nmI5muwFsRMGNssKR_b9kDchaU"
 CHAT_ID = "1978337209"
 
@@ -23,28 +23,24 @@ def create_chart(df, ticker):
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
                         vertical_spacing=0.05, subplot_titles=(f'{ticker} 5m - Price & VWAP', 'RSI'), 
                         row_heights=[0.7, 0.3])
-    # الشموع
     fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'],
                                 low=df['Low'], close=df['Close'], name='Price'), row=1, col=1)
-    # VWAP
     fig.add_trace(go.Scatter(x=df.index, y=df['VWAP'], line=dict(color='cyan', width=2), name='VWAP'), row=1, col=1)
-    # RSI
     fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], line=dict(color='magenta', width=2), name='RSI'), row=2, col=1)
     fig.add_hline(y=50, line_dash="dash", line_color="white", row=2, col=1)
-    fig.update_layout(height=500, template='plotly_dark', showlegend=False, xaxis_rangeslider_visible=False)
+    fig.update_layout(height=400, template='plotly_dark', showlegend=False, xaxis_rangeslider_visible=False)
     return fig
 
-def run_universal_scan(ticker):
+def check_strategy(ticker):
     try:
-        # جلب البيانات
         df = yf.download(ticker, period="2d", interval="5m", progress=False, multi_level_index=False)
-        if df.empty or len(df) < 30: return None, None
+        if df.empty or len(df) < 25: 
+            return "No Data", 0, 0, None
 
         df.columns = [str(c).capitalize() for c in df.columns]
         for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
             df[col] = pd.to_numeric(df[col], errors='coerce').astype(float)
         
-        # المؤشرات
         df['VWAP'] = ta.vwap(high=df.High, low=df.Low, close=df.Close, volume=df.Volume)
         df['RSI'] = ta.rsi(close=df.Close, length=14)
         df.dropna(subset=['VWAP', 'RSI'], inplace=True)
@@ -52,45 +48,62 @@ def run_universal_scan(ticker):
         last = df.iloc[-1]
         prev = df.iloc[-2]
         
-        # استراتيجية الاختراق
-        is_signal = (last['Close'] > last['VWAP']) and (prev['Close'] <= prev['VWAP']) and (last['RSI'] > 50)
+        # Strategy Logic
+        is_match = (last['Close'] > last['VWAP']) and (prev['Close'] <= prev['VWAP']) and (last['RSI'] > 50)
         
-        if is_signal:
-            result = {"t": ticker, "p": round(float(last['Close']), 2), "rsi": round(last['RSI'], 1)}
-            return result, df
+        status = "🎯 MATCH" if is_match else "❌ No Match"
+        return status, round(last['Close'], 2), round(last['RSI'], 1), df if is_match else None
     except:
-        return None, None
-    return None, None
+        return "Error", 0, 0, None
 
-# --- الواجهة ---
+# --- Streamlit UI ---
 st.set_page_config(page_title="Universal Sniper", layout="wide")
-st.title("🎯 Universal Sniper (Stocks & Gold)")
+st.title("🎯 Universal Sniper Status Board")
 
-# مدخلات المستخدم للرموز
-st.sidebar.header("Scan List")
-st.sidebar.info("Gold: GC=F or XAUUSD=X\nEGX: COMI.CA, etc.")
-user_tickers = st.sidebar.text_area("Enter Tickers (comma separated):", "GC=F, COMI.CA, FWRY.CA, TMGH.CA")
-SCAN_LIST = [t.strip().upper() for t in user_tickers.split(",") if t.strip()]
+st.sidebar.header("Scan Settings")
+user_input = st.sidebar.text_area("Tickers (comma separated):", "GC=F, XAUUSD=X, COMI.CA, FWRY.CA, TMGH.CA")
+SCAN_LIST = [t.strip().upper() for t in user_input.split(",") if t.strip()]
 
 if "active" not in st.session_state: st.session_state.active = False
 
-if st.sidebar.button("🚀 Start Scan"): st.session_state.active = True
-if st.sidebar.button("🛑 Stop"): st.session_state.active = False
+col_btn1, col_btn2 = st.sidebar.columns(2)
+if col_btn1.button("🚀 Start"): st.session_state.active = True
+if col_btn2.button("🛑 Stop"): st.session_state.active = False
 
 if st.session_state.active:
-    status = st.empty()
+    # الأماكن المخصصة للتحديث الحي
+    status_header = st.empty()
+    table_placeholder = st.empty()
     chart_container = st.container()
-    
+
     while True:
-        status.info(f"🔍 Scanning {len(SCAN_LIST)} symbols at {datetime.now().strftime('%H:%M:%S')}")
+        status_header.info(f"🔄 Current Scan Cycle: {datetime.now().strftime('%H:%M:%S')}")
+        
+        scan_results = []
         
         for ticker in SCAN_LIST:
-            res, df_data = run_universal_scan(ticker)
-            if res:
+            status, price, rsi, df_match = check_strategy(ticker)
+            
+            # إضافة النتيجة للقائمة لعرضها في الجدول
+            scan_results.append({
+                "Ticker": ticker,
+                "Status": status,
+                "Last Price": price,
+                "RSI": rsi,
+                "Time": datetime.now().strftime("%H:%M:%S")
+            })
+            
+            # إذا كان هناك تطابق، اعرض الرسم البياني وأرسل تنبيه
+            if "🎯" in status:
                 with chart_container:
-                    st.success(f"🎯 SIGNAL: {res['t']} at {res['p']}")
-                    st.plotly_chart(create_chart(df_data, res['t']), use_container_width=True)
-                send_alert(f"🎯 *Signal Found!*\nAsset: {res['t']}\nPrice: {res['p']}\nRSI: {res['rsi']}")
+                    st.success(f"🚀 SIGNAL FOUND: {ticker} at {price}")
+                    st.plotly_chart(create_chart(df_match, ticker), use_container_width=True)
+                send_alert(f"🎯 *Signal Found!*\nAsset: {ticker}\nPrice: {price}\nRSI: {rsi}")
+
+        # تحديث الجدول الحي في كل دورة
+        df_display = pd.DataFrame(scan_results)
+        table_placeholder.table(df_display)
         
-        time.sleep(120) # فحص كل دقيقتين
+        # الانتظار قبل الدورة القادمة
+        time.sleep(120) 
         st.rerun()
