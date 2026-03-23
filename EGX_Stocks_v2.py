@@ -44,10 +44,11 @@ def strategy_bollinger(df, b_len, b_std):
     match = (last['Close'] > last['L_Band']) and (prev['Close'] <= prev['L_Band'])
     return match, f"P:{round(last['Close'],2)}"
 
-# --- Data Fetching with History Fallback ---
+# --- Enhanced Data Fetching ---
 def get_data_with_fallback(ticker, tf):
+    # CRITICAL FIX: Increased lookback periods to ensure indicators have enough data
     period_map = {
-        "1m": "1d", "5m": "5d", "15m": "7d", "30m": "30d", "1h": "60d",
+        "1m": "7d", "5m": "30d", "15m": "60d", "30m": "60d", "1h": "730d",
         "1d": "max", "5d": "max", "1M": "max", "3M": "max", "6M": "max", "YTD": "ytd"
     }
     yf_interval_map = {
@@ -55,16 +56,18 @@ def get_data_with_fallback(ticker, tf):
         "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h"
     }
     try:
-        # Try requested TF
-        df = yf.download(ticker, period=period_map.get(tf, "1d"), interval=yf_interval_map.get(tf, "1h"), progress=False, multi_level_index=False)
-        # Fallback to Hourly/Daily if empty (Market Closed logic)
-        if df.empty or len(df) < 5:
+        df = yf.download(ticker, period=period_map.get(tf, "60d"), interval=yf_interval_map.get(tf, "1h"), progress=False, multi_level_index=False)
+        
+        # Fallback if specific TF is empty
+        if df.empty or len(df) < 10:
             df = yf.download(ticker, period="60d", interval="1h", progress=False, multi_level_index=False)
         if df.empty:
             df = yf.download(ticker, period="max", interval="1d", progress=False, multi_level_index=False)
             
         if not df.empty:
             df.columns = [str(c).capitalize() for c in df.columns]
+            # Remove empty rows common in EGX after hours
+            df = df[df['Volume'] > 0]
             return df
         return pd.DataFrame()
     except: return pd.DataFrame()
@@ -82,9 +85,6 @@ def plot_chart(df, ticker, strategy_name, current_params):
     elif strategy_name == "MA Golden Cross":
         if 'Fast' in df.columns: fig.add_trace(go.Scatter(x=df.index, y=df['Fast'], name="Fast", line=dict(color='cyan')), row=1, col=1)
         if 'Slow' in df.columns: fig.add_trace(go.Scatter(x=df.index, y=df['Slow'], name="Slow", line=dict(color='magenta')), row=1, col=1)
-    elif strategy_name == "Bollinger Band Reversal":
-        if 'U_Band' in df.columns: fig.add_trace(go.Scatter(x=df.index, y=df['U_Band'], name="Upper", line=dict(color='gray')), row=1, col=1)
-        if 'L_Band' in df.columns: fig.add_trace(go.Scatter(x=df.index, y=df['L_Band'], name="Lower", line=dict(color='gray'), fill='tonexty'), row=1, col=1)
         
     fig.update_layout(height=550, template="plotly_dark", xaxis_rangeslider_visible=False, title=f"Analysis: {ticker}")
     return fig
@@ -93,7 +93,6 @@ def plot_chart(df, ticker, strategy_name, current_params):
 st.set_page_config(page_title="Sniper Engine Pro", layout="wide")
 st.title(f"🎯 Sniper Engine | {datetime.now(CAIRO_TZ).strftime('%H:%M:%S')}")
 
-# SIDEBAR (Restored Telegram & Strategy Params)
 st.sidebar.header("📡 Alerts & Connection")
 active_id = st.sidebar.text_input("Telegram Chat ID", value=DEFAULT_CHAT_ID)
 
@@ -112,8 +111,8 @@ elif selected_strat == "Bollinger Band Reversal":
     params['b_std'] = st.sidebar.slider("Std Dev", 1.0, 4.0, 2.0, 0.5)
 
 st.sidebar.header("📊 Market Settings")
-p_tf = st.sidebar.selectbox("Timeframe", ["1m", "5m", "15m", "30m", "1h", "1d", "5d", "1M", "3M", "6M", "YTD"], index=5)
-tickers_input = st.sidebar.text_area("Tickers", "GC=F, COMI.CA, TMGH.CA, HRHO.CA, FWRY.CA, EAST.CA, ETEL.CA, ABUK.CA, ADIB.CA, EFIH.CA, ATLC.CA,AMD")
+p_tf = st.sidebar.selectbox("Timeframe", ["1m", "5m", "15m", "30m", "1h", "1d", "5d", "1M", "3M", "6M", "YTD"], index=2) # Default to 15m
+tickers_input = st.sidebar.text_area("Tickers", "GC=F, COMI.CA, TMGH.CA, HRHO.CA, FWRY.CA, EAST.CA, ETEL.CA, ABUK.CA, ADIB.CA, EFIH.CA, ATLC.CA, AMD")
 SCAN_LIST = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
 p_interval = st.sidebar.select_slider("Refresh (Sec)", options=[30, 60, 120, 300], value=60)
 
@@ -135,10 +134,9 @@ if st.session_state.active:
         for ticker in SCAN_LIST:
             df = get_data_with_fallback(ticker, p_tf)
             if df.empty:
-                results.append({"Ticker": ticker, "Status": "⚠️ Invalid", "Price": 0, "Details": "N/A", "Last Update": "N/A", "_ts": pd.Timestamp(0).tz_localize(CAIRO_TZ)})
+                results.append({"Ticker": ticker, "Status": "⚠️ No Data", "Price": 0, "Details": "N/A", "Last Update": "N/A", "_ts": pd.Timestamp(0).tz_localize(CAIRO_TZ)})
                 continue
 
-            # Run Strategy with restored Params
             match, details = False, "N/A"
             if selected_strat == "VWAP + RSI Breakout":
                 match, details = strategy_vwap_rsi(df, params['r_len'], params['r_thresh'])
@@ -147,6 +145,7 @@ if st.session_state.active:
             elif selected_strat == "Bollinger Band Reversal":
                 match, details = strategy_bollinger(df, params['b_len'], params['b_std'])
 
+            # Safety check to ensure we still have data after strategy calculations
             if df.empty: continue
             
             raw_ts = df.index[-1]
@@ -157,7 +156,7 @@ if st.session_state.active:
 
             results.append({
                 "Ticker": ticker, "Status": "🎯 MATCH" if match else "❌ No Match",
-                "Price": round(float(df.iloc[-1]['Close']), 2), "Details": details,
+                "Price": round(float(df.iloc[-1]['Close']), 4), "Details": details,
                 "Last Update": raw_ts.strftime("%d/%m %H:%M"), "_ts": raw_ts
             })
 
@@ -166,7 +165,6 @@ if st.session_state.active:
                 try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={"chat_id": active_id, "text": msg, "parse_mode": "Markdown"})
                 except: pass
 
-        # UI Updates
         if results:
             df_table = pd.DataFrame(results).sort_values(by="_ts", ascending=False).drop(columns=["_ts"])
             table_placeholder.table(df_table)
