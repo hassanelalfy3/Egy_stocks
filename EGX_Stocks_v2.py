@@ -23,25 +23,24 @@ def play_sound():
 
 def run_scalping_scan(ticker):
     try:
-        # FIX 1: Force non-multi-index columns
-        df = yf.download(ticker, period="2d", interval="5m", progress=False)
+        # Added multi_level_index=False to force clean columns immediately
+        df = yf.download(ticker, period="2d", interval="5m", progress=False, multi_level_index=False)
         
         if df.empty or len(df) < 20:
             return None
 
-        # FIX 2: Flatten columns if they are MultiIndex
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+        # Clean column names and force numeric types
+        df.columns = [str(c).capitalize() for c in df.columns]
+        for col in ['High', 'Low', 'Close', 'Volume']:
+            df[col] = pd.to_numeric(df[col], errors='coerce').astype(float)
         
-        # FIX 3: Ensure data is numeric
-        for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
+        # Drop any rows that failed to load
+        df.dropna(inplace=True)
 
-        # Calculate Indicators
-        df['VWAP'] = ta.vwap(df.High, df.Low, df.Close, df.Volume)
-        df['RSI'] = ta.rsi(df.Close, length=14)
+        # Calculate Indicators with named arguments
+        df['VWAP'] = ta.vwap(high=df['High'], low=df['Low'], close=df['Close'], volume=df['Volume'])
+        df['RSI'] = ta.rsi(close=df['Close'], length=14)
         
-        # Drop rows where indicators couldn't calculate yet
         df.dropna(subset=['VWAP', 'RSI'], inplace=True)
         
         if len(df) < 2: return None
@@ -49,7 +48,7 @@ def run_scalping_scan(ticker):
         last_row = df.iloc[-1]
         prev_row = df.iloc[-2]
         
-        # Strategy
+        # Strategy Logic
         cross_up_vwap = (last_row['Close'] > last_row['VWAP']) and (prev_row['Close'] <= prev_row['VWAP'])
         rsi_positive = last_row['RSI'] > 50
         
@@ -61,7 +60,8 @@ def run_scalping_scan(ticker):
                 "Time": datetime.now().strftime("%H:%M:%S")
             }
     except Exception as e:
-        st.error(f"Error in {ticker}: {e}") # This will show the error on screen!
+        # Using warning instead of error so one bad ticker doesn't stop the UI
+        st.sidebar.warning(f"Skipped {ticker}: {e}") 
     return None
 
 # --- UI ---
@@ -80,7 +80,8 @@ if st.session_state.running:
     status_msg = st.empty()
     progress_bar = st.progress(0)
     timer_text = st.empty()
-    results_area = st.container()
+    # Placeholder for the results so they refresh cleanly
+    results_placeholder = st.empty()
 
     while True:
         status_msg.info(f"🔍 Scanning symbols at {datetime.now().strftime('%H:%M:%S')}...")
@@ -91,7 +92,8 @@ if st.session_state.running:
             if res:
                 all_hits.append(res)
         
-        with results_area:
+        # Update the UI cleanly
+        with results_placeholder.container():
             if all_hits:
                 play_sound()
                 st.success(f"🚨 Found {len(all_hits)} signals!")
@@ -108,8 +110,4 @@ if st.session_state.running:
             progress_bar.progress((wait_time - i) / wait_time)
             time.sleep(1)
         
-        # Handle different Streamlit versions for rerun
-        try:
-            st.rerun()
-        except AttributeError:
-            st.experimental_rerun()
+        st.rerun()
