@@ -2,8 +2,6 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import requests
 import time
 from datetime import datetime
@@ -14,7 +12,7 @@ CAIRO_TZ = pytz.timezone('Africa/Cairo')
 BOT_TOKEN = "8707488971:AAHtuqNQ5nmI5muwFsRMGNssKR_b9kDchaU"
 DEFAULT_CHAT_ID = "1978337209"
 
-# --- Strategy Logic (Robust indexing) ---
+# --- Strategy Logic ---
 
 def strategy_vwap_rsi(df, r_len, r_thresh):
     df['VWAP'] = ta.vwap(high=df.High, low=df.Low, close=df.Close, volume=df.Volume)
@@ -45,12 +43,11 @@ def strategy_bollinger(df, b_len, b_std):
     match = (last['Close'] > last['L_Band']) and (prev['Close'] <= prev['L_Band'])
     return match, f"P:{round(last['Close'],2)}"
 
-# --- Data Fetching with Fallback ---
+# --- Data Fetching ---
 def get_data(ticker, tf):
     period_map = {"1m": "1d", "5m": "5d", "15m": "7d", "30m": "30d", "1h": "60d"}
     try:
         df = yf.download(ticker, period=period_map.get(tf, "5d"), interval=tf, progress=False, multi_level_index=False)
-        # Fallback to 1h if timeframe is too tight for available data
         if df.empty or len(df) < 5:
             df = yf.download(ticker, period="60d", interval="1h", progress=False, multi_level_index=False)
         if not df.empty:
@@ -63,42 +60,42 @@ def get_data(ticker, tf):
 st.set_page_config(page_title="Pro Sniper Engine", layout="wide")
 st.title(f"🎯 Strategy Sniper Engine | {datetime.now(CAIRO_TZ).strftime('%H:%M:%S')} (Cairo)")
 
-# Sidebar
+# --- SIDEBAR ---
+st.sidebar.header("📡 Connection")
 active_id = st.sidebar.text_input("Telegram Chat ID:", value=DEFAULT_CHAT_ID)
-st.sidebar.header("🎯 Strategy Selector")
-selected_strat = st.sidebar.selectbox("Choose Strategy:", 
+
+# st.sidebar.markdown("---")
+st.sidebar.header("🎯 Strategy")
+selected_strat = st.sidebar.selectbox("Select Strategy:", 
     ["VWAP + RSI Breakout", "MA Golden Cross", "Bollinger Band Reversal"])
 
-#st.sidebar.markdown("---")
-st.sidebar.selectbox("⚙️ Parameters")
-
+st.sidebar.markdown("⚙️ Parameters")
 params = {}
 if selected_strat == "VWAP + RSI Breakout":
     params['r_len'] = st.sidebar.number_input("RSI Period", 2, 50, 14)
-    params['r_thresh'] = st.sidebar.slider("RSI Entry Threshold", 10, 90, 50)
+    params['r_thresh'] = st.sidebar.slider("RSI Threshold", 10, 90, 50)
 elif selected_strat == "MA Golden Cross":
     params['f_ma'] = st.sidebar.number_input("Fast MA Period", 2, 50, 9)
     params['s_ma'] = st.sidebar.number_input("Slow MA Period", 10, 200, 21)
 elif selected_strat == "Bollinger Band Reversal":
     params['b_len'] = st.sidebar.number_input("BB Period", 5, 50, 20)
-    params['b_std'] = st.sidebar.slider("Standard Deviation", 1.0, 4.0, 2.0, 0.5)
+    params['b_std'] = st.sidebar.slider("Std Dev", 1.0, 4.0, 2.0, 0.5)
 
-
+# st.sidebar.markdown("---")
+st.sidebar.header("📊 Scanning Settings")
 p_tf = st.sidebar.selectbox("Timeframe", ["1m", "5m", "15m", "30m", "1h"], index=1)
-
-
-tickers_input = st.sidebar.text_area("Tickers List (Comma separated):", "GC=F, NVDA, BTC-USD, COMI.CA, FWRY.CA, ETH-USD")
+tickers_input = st.sidebar.text_area("Tickers (Comma separated):", "GC=F, NVDA, BTC-USD, COMI.CA, FWRY.CA, ETH-USD")
 SCAN_LIST = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
-p_interval = st.sidebar.select_slider("Refresh Rate (Sec)", options=[30, 60, 120, 300], value=60)
+p_interval = st.sidebar.select_slider("Refresh Interval (Sec)", options=[30, 60, 120, 300], value=60)
 
 if "active" not in st.session_state: st.session_state.active = False
 c1, c2 = st.sidebar.columns(2)
-if c1.button("🚀 Start"): st.session_state.active = True
-if c2.button("🛑 Stop"): st.session_state.active = False
+if c1.button("🚀 Start Engine", use_container_width=True): st.session_state.active = True
+if c2.button("🛑 Stop Engine", use_container_width=True): st.session_state.active = False
 
 # --- Main Engine ---
 if st.session_state.active:
-    st.info(f"🛰️ Scanning: **{selected_strat}** | Sorted by Latest Update")
+    st.info(f"🛰️ Active Scanner: **{selected_strat}**")
     table_placeholder = st.empty()
 
     while True:
@@ -106,7 +103,6 @@ if st.session_state.active:
         for ticker in SCAN_LIST:
             df = get_data(ticker, p_tf)
             
-            # Safety check for IndexError
             if df is None or df.empty or len(df) < 2:
                 results.append({
                     "Ticker": ticker, "Status": "⚠️ No Data", "Price": 0.0, 
@@ -122,7 +118,6 @@ if st.session_state.active:
             elif selected_strat == "Bollinger Band Reversal":
                 match, details = strategy_bollinger(df, params['b_len'], params['b_std'])
             
-            # Additional safety for time access
             if df.empty: continue
             raw_ts = df.index[-1]
             if raw_ts.tz is None: raw_ts = raw_ts.tz_localize('UTC').astimezone(CAIRO_TZ)
@@ -144,7 +139,6 @@ if st.session_state.active:
                 try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={"chat_id": active_id, "text": msg, "parse_mode": "Markdown"})
                 except: pass
 
-        # Sort and display
         if results:
             df_final = pd.DataFrame(results).sort_values(by="_ts", ascending=False).drop(columns=["_ts"])
             table_placeholder.table(df_final)
