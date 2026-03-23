@@ -69,7 +69,7 @@ st.sidebar.header("🎯 Strategy")
 selected_strat = st.sidebar.selectbox("Select Strategy:", 
     ["VWAP + RSI Breakout", "MA Golden Cross", "Bollinger Band Reversal"])
 
-st.sidebar.markdown("⚙️ Parameters")
+# st.sidebar.markdown("⚙️ Parameters")
 params = {}
 if selected_strat == "VWAP + RSI Breakout":
     params['r_len'] = st.sidebar.number_input("RSI Period", 2, 50, 14)
@@ -83,15 +83,16 @@ elif selected_strat == "Bollinger Band Reversal":
 
 # st.sidebar.markdown("---")
 st.sidebar.header("📊 Scanning Settings")
+p_interval = st.sidebar.select_slider("Refresh Interval (Sec)", options=[30, 60, 120, 300], value=60)
 p_tf = st.sidebar.selectbox("Timeframe", ["1m", "5m", "15m", "30m", "1h"], index=1)
 tickers_input = st.sidebar.text_area("Tickers (Comma separated):", "GC=F, NVDA, BTC-USD, COMI.CA, FWRY.CA, ETH-USD")
 SCAN_LIST = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
-p_interval = st.sidebar.select_slider("Refresh Interval (Sec)", options=[30, 60, 120, 300], value=60)
+
 
 if "active" not in st.session_state: st.session_state.active = False
 c1, c2 = st.sidebar.columns(2)
-if c1.button("🚀 Start Engine", use_container_width=True): st.session_state.active = True
-if c2.button("🛑 Stop Engine", use_container_width=True): st.session_state.active = False
+if c1.button("🚀 Start", use_container_width=True): st.session_state.active = True
+if c2.button("🛑 Stop", use_container_width=True): st.session_state.active = False
 
 # --- Main Engine ---
 if st.session_state.active:
