@@ -79,6 +79,7 @@ st.title(f"🚀 Sniper Engine | {datetime.now(CAIRO_TZ).strftime('%H:%M:%S')}")
 
 st.sidebar.header("Settings")
 active_id = st.sidebar.text_input("Telegram ID", value=DEFAULT_CHAT_ID)
+st.sidebar.header("Strategy")
 selected_strat = st.sidebar.selectbox("Strategy", ["VWAP + RSI Breakout", "MA Golden Cross", "Bollinger Band Reversal"])
 
 # Dynamic Params
@@ -93,6 +94,7 @@ elif selected_strat == "Bollinger Band Reversal":
     params['b_len'] = st.sidebar.number_input("BB Period", 5, 50, 20)
     params['b_std'] = st.sidebar.slider("Std Dev", 1.0, 4.0, 2.0, 0.5)
 
+st.sidebar.markdown("---")
 p_tf = st.sidebar.selectbox("Timeframe", ["1m", "5m", "15m", "30m", "1h"], index=1)
 tickers_input = st.sidebar.text_area("Tickers", "GC=F, NVDA, BTC-USD, COMI.CA, FWRY.CA, ETH-USD")
 SCAN_LIST = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
