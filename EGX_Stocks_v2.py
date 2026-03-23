@@ -79,8 +79,8 @@ st.title(f"🚀 Sniper Engine | {datetime.now(CAIRO_TZ).strftime('%H:%M:%S')}")
 
 st.sidebar.header("Settings")
 active_id = st.sidebar.text_input("Telegram ID", value=DEFAULT_CHAT_ID)
-st.sidebar.header("Strategy")
-selected_strat = st.sidebar.selectbox("", ["VWAP + RSI Breakout", "MA Golden Cross", "Bollinger Band Reversal"])
+
+selected_strat = st.sidebar.selectbox(st.sidebar.header("Strategy"), ["VWAP + RSI Breakout", "MA Golden Cross", "Bollinger Band Reversal"])
 
 # Dynamic Params
 params = {}
