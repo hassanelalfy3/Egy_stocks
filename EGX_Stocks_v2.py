@@ -37,7 +37,6 @@ def strategy_ma_cross(df, fast_p, slow_p):
 def strategy_bollinger(df, b_len, b_std):
     bb_df = ta.bbands(df.Close, length=b_len, std=b_std)
     if bb_df is None or bb_df.empty: return False, "Error"
-    # Mapping columns based on typical pandas_ta output
     df['L_Band'] = bb_df.iloc[:, 0]
     df['M_Band'] = bb_df.iloc[:, 1]
     df['U_Band'] = bb_df.iloc[:, 2]
@@ -48,28 +47,28 @@ def strategy_bollinger(df, b_len, b_std):
     return match, f"P:{round(last['Close'],2)}"
 
 # --- Plotting Function ---
-def plot_chart(df, ticker, strategy_name):
+def plot_chart(df, ticker, strategy_name, r_thresh=50):
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
-                        vertical_spacing=0.1, row_heights=[0.7, 0.3])
+                        vertical_spacing=0.05, row_heights=[0.7, 0.3])
 
-    # Candlestick
+    # Price Chart
     fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'],
                                  low=df['Low'], close=df['Close'], name="Price"), row=1, col=1)
 
     if strategy_name == "VWAP + RSI Breakout":
-        fig.add_trace(go.Scatter(x=df.index, y=df['VWAP'], name="VWAP", line=dict(color='orange')), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['VWAP'], name="VWAP", line=dict(color='orange', width=1.5)), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], name="RSI", line=dict(color='purple')), row=2, col=1)
-        fig.add_hline(y=params['r_thresh'], line_dash="dash", line_color="red", row=2, col=1)
+        fig.add_hline(y=r_thresh, line_dash="dash", line_color="red", row=2, col=1)
 
     elif strategy_name == "MA Golden Cross":
-        fig.add_trace(go.Scatter(x=df.index, y=df['Fast'], name="Fast MA", line=dict(color='blue')), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df['Slow'], name="Slow MA", line=dict(color='red')), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['Fast'], name="Fast MA", line=dict(color='cyan')), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['Slow'], name="Slow MA", line=dict(color='magenta')), row=1, col=1)
 
     elif strategy_name == "Bollinger Band Reversal":
-        fig.add_trace(go.Scatter(x=df.index, y=df['U_Band'], name="Upper", line=dict(color='gray', width=1)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df['L_Band'], name="Lower", line=dict(color='gray', width=1), fill='tonexty'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['U_Band'], name="Upper", line=dict(color='rgba(173, 216, 230, 0.4)', width=1)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df['L_Band'], name="Lower", line=dict(color='rgba(173, 216, 230, 0.4)', width=1), fill='tonexty'), row=1, col=1)
 
-    fig.update_layout(title=f"{ticker} - {strategy_name}", height=600, xaxis_rangeslider_visible=False)
+    fig.update_layout(title=f"PRO CHART: {ticker}", height=500, xaxis_rangeslider_visible=False, template="plotly_dark")
     return fig
 
 # --- Data Fetching ---
@@ -86,15 +85,15 @@ def get_data(ticker, tf):
         return pd.DataFrame()
 
 # --- UI Setup ---
-st.set_page_config(page_title="Pro Sniper Engine", layout="wide")
-st.title(f"🎯 Strategy Sniper Engine | {datetime.now(CAIRO_TZ).strftime('%H:%M:%S')} (Cairo)")
+st.set_page_config(page_title="Sniper Engine Pro", layout="wide")
+st.title(f"🚀 Live Strategy Engine | {datetime.now(CAIRO_TZ).strftime('%H:%M:%S')} (Cairo)")
 
 # --- SIDEBAR ---
 st.sidebar.header("📡 Connection")
-active_id = st.sidebar.text_input("Telegram Chat ID:", value=DEFAULT_CHAT_ID)
+active_id = st.sidebar.text_input("Telegram ID:", value=DEFAULT_CHAT_ID)
 
 st.sidebar.header("🎯 Strategy")
-selected_strat = st.sidebar.selectbox("Select Strategy:", 
+selected_strat = st.sidebar.selectbox("Strategy:", 
     ["VWAP + RSI Breakout", "MA Golden Cross", "Bollinger Band Reversal"])
 
 params = {}
@@ -102,44 +101,45 @@ if selected_strat == "VWAP + RSI Breakout":
     params['r_len'] = st.sidebar.number_input("RSI Period", 2, 50, 14)
     params['r_thresh'] = st.sidebar.slider("RSI Threshold", 10, 90, 50)
 elif selected_strat == "MA Golden Cross":
-    params['f_ma'] = st.sidebar.number_input("Fast MA Period", 2, 50, 9)
-    params['s_ma'] = st.sidebar.number_input("Slow MA Period", 10, 200, 21)
+    params['f_ma'] = st.sidebar.number_input("Fast MA", 2, 50, 9)
+    params['s_ma'] = st.sidebar.number_input("Slow MA", 10, 200, 21)
 elif selected_strat == "Bollinger Band Reversal":
     params['b_len'] = st.sidebar.number_input("BB Period", 5, 50, 20)
     params['b_std'] = st.sidebar.slider("Std Dev", 1.0, 4.0, 2.0, 0.5)
 
-st.sidebar.header("📊 Scanning Settings")
-p_interval = st.sidebar.select_slider("Refresh Interval (Sec)", options=[30, 60, 120, 300], value=60)
+st.sidebar.header("📊 Settings")
 p_tf = st.sidebar.selectbox("Timeframe", ["1m", "5m", "15m", "30m", "1h"], index=1)
-tickers_input = st.sidebar.text_area("Tickers:", "GC=F, NVDA, BTC-USD, COMI.CA, FWRY.CA")
+tickers_input = st.sidebar.text_area("Tickers:", "GC=F, NVDA, BTC-USD, COMI.CA, FWRY.CA, ETH-USD")
 SCAN_LIST = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+p_interval = st.sidebar.select_slider("Refresh (Sec)", options=[30, 60, 120, 300], value=60)
 
 if "active" not in st.session_state: st.session_state.active = False
 c1, c2 = st.sidebar.columns(2)
-if c1.button("🚀 Start", use_container_width=True): st.session_state.active = True
-if c2.button("🛑 Stop", use_container_width=True): st.session_state.active = False
+if c1.button("🚀 Start"): st.session_state.active = True
+if c2.button("🛑 Stop"): st.session_state.active = False
 
 # --- Main Engine ---
 if st.session_state.active:
-    st.info(f"🛰️ Active Scanner: **{selected_strat}**")
+    st.info(f"🛰️ Scanning: **{selected_strat}** on **{p_tf}**")
     
-    # Placeholders for dynamic UI
-    chart_placeholder = st.empty()
+    # Placeholders in specific order: Table first, then Charts
     table_placeholder = st.empty()
+    st.markdown("---")
+    st.subheader("📈 Signal Visualizer (Matched Tickers Only)")
+    chart_container = st.container()
 
     while True:
         results = []
-        best_df = None
-        best_ticker = None
+        matched_data = {} # To store df and ticker for matched items
 
         for ticker in SCAN_LIST:
             df = get_data(ticker, p_tf)
-            
             if df is None or df.empty or len(df) < 5:
                 results.append({"Ticker": ticker, "Status": "⚠️ No Data", "Price": 0.0, "Details": "N/A", "Last Update": "N/A", "_ts": pd.Timestamp(0).tz_localize(CAIRO_TZ)})
                 continue
             
-            match, details = False, "N/A"
+            match = False
+            details = "N/A"
             if selected_strat == "VWAP + RSI Breakout":
                 match, details = strategy_vwap_rsi(df, params['r_len'], params['r_thresh'])
             elif selected_strat == "MA Golden Cross":
@@ -147,10 +147,9 @@ if st.session_state.active:
             elif selected_strat == "Bollinger Band Reversal":
                 match, details = strategy_bollinger(df, params['b_len'], params['b_std'])
             
-            # Use the first available match for the chart, or just the first item
-            if (match and best_ticker is None) or (best_ticker is None):
-                best_df = df.copy()
-                best_ticker = ticker
+            # Record match for plotting
+            if match:
+                matched_data[ticker] = df.copy()
 
             raw_ts = df.index[-1]
             if raw_ts.tz is None: raw_ts = raw_ts.tz_localize('UTC').astimezone(CAIRO_TZ)
@@ -170,13 +169,18 @@ if st.session_state.active:
                 try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={"chat_id": active_id, "text": msg, "parse_mode": "Markdown"})
                 except: pass
 
-        # Update Chart and Table
-        if best_df is not None:
-            chart_placeholder.plotly_chart(plot_chart(best_df, best_ticker, selected_strat), use_container_width=True)
-        
+        # 1. Update Table (At the top)
         if results:
             df_final = pd.DataFrame(results).sort_values(by="_ts", ascending=False).drop(columns=["_ts"])
             table_placeholder.table(df_final)
+
+        # 2. Update Charts (Below table)
+        with chart_container:
+            if not matched_data:
+                st.write("🔭 No active signals found yet. Still scanning...")
+            else:
+                for t, data in matched_data.items():
+                    st.plotly_chart(plot_chart(data, t, selected_strat, params.get('r_thresh', 50)), use_container_width=True)
         
         time.sleep(p_interval)
         st.rerun()
