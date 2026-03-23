@@ -16,40 +16,38 @@ def send_telegram_msg(message):
     try: requests.post(url, json=payload)
     except: pass
 
-# --- وظيفة تشغيل الصوت ---
 def play_sound():
-    # صوت تنبيه قصير
     sound_url = "https://www.soundjay.com/buttons/sounds/button-3.mp3"
-    html_string = f"""
-        <audio autoplay>
-          <source src="{sound_url}" type="audio/mp3">
-        </audio>
-    """
-    # استخدام placeholder لضمان عدم بقاء الـ HTML في الصفحة
-    sound_placeholder = st.empty()
-    sound_placeholder.markdown(html_string, unsafe_allow_html=True)
-    time.sleep(1)
-    sound_placeholder.empty()
+    html_string = f'<audio autoplay><source src="{sound_url}" type="audio/mp3"></audio>'
+    st.components.v1.html(html_string, height=0)
 
-# --- منطق الاستراتيجية ---
 def run_scalping_scan(ticker):
     try:
-        # جلب بيانات 5 دقائق
-        df = yf.download(ticker, period="2d", interval="5m", progress=False)
-        if df.empty or len(df) < 30: return None
+        # 1. جلب البيانات مع تعطيل الـ Multi-index الجديد لتجنب الأخطاء
+        df = yf.download(ticker, period="2d", interval="5m", progress=False, multi_level_index=False)
         
-        # تنظيف البيانات
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+        if df.empty or len(df) < 20: 
+            return None
+        
+        # 2. التأكد من أن الأعمدة بأسماء بسيطة ونوع البيانات رقمي
+        df.columns = [c.capitalize() for c in df.columns]
+        for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
 
-        # حساب المؤشرات
+        # 3. حساب المؤشرات (تم إضافة Check للتأكد من وجود VWAP)
         df['VWAP'] = ta.vwap(df.High, df.Low, df.Close, df.Volume)
         df['RSI'] = ta.rsi(df.Close, length=14)
         
+        # حذف الصفوف الفارغة (NaN) الناتجة عن الحسابات
+        df.dropna(subset=['VWAP', 'RSI'], inplace=True)
+        
+        if len(df) < 2: return None
+
         last_row = df.iloc[-1]
         prev_row = df.iloc[-2]
         
-        # الشروط: اختراق VWAP للأعلى و RSI > 50
+        # الشروط
         cross_up_vwap = (last_row['Close'] > last_row['VWAP']) and (prev_row['Close'] <= prev_row['VWAP'])
         rsi_positive = last_row['RSI'] > 50
         
@@ -61,68 +59,53 @@ def run_scalping_scan(ticker):
                 "Time": datetime.now().strftime("%H:%M:%S")
             }
     except Exception as e:
-        st.error(f"Error scanning {ticker}: {e}")
+        # سيظهر الخطأ في الكونسول (Terminal) لمعرفته
+        print(f"Error in {ticker}: {str(e)}")
     return None
 
 # --- واجهة Streamlit ---
-st.set_page_config(page_title="EGX AI Sniper", page_icon="🎯", layout="wide")
+st.set_page_config(page_title="EGX AI Sniper", layout="wide")
 st.title("EGX AI Sniper Scanner 🎯")
 
 SCAN_LIST = ["COMI.CA", "FWRY.CA", "TMGH.CA", "SWDY.CA", "ESRS.CA", "ABUK.CA", "EKHO.CA", "ETEL.CA", "AMOC.CA", "PHDC.CA"]
 
-# تهيئة حالة البرنامج (Session State)
-if 'running' not in st.session_state:
+if "running" not in st.session_state:
     st.session_state.running = False
 
-col1, col2 = st.columns([1, 4])
-with col1:
-    if st.button("🚀 Start Auto Scan"):
-        st.session_state.running = True
+if st.button("🚀 Start Auto Scan"):
+    st.session_state.running = True
 
 if st.session_state.running:
-    st.info("Scanner is active. Don't forget to keep this tab open.")
-    
-    # أماكن العرض
-    status_placeholder = st.empty()
+    status_msg = st.empty()
     progress_bar = st.progress(0)
-    countdown_placeholder = st.empty()
-    results_area = st.container()
+    timer_text = st.empty()
+    results_table = st.empty()
 
     while True:
-        with status_placeholder:
-            st.info(f"🔍 Last Scan Started at: {datetime.now().strftime('%H:%M:%S')}")
+        status_msg.info(f"🔍 Scanning symbols at {datetime.now().strftime('%H:%M:%S')}...")
         
-        hits = []
-        for t in SCAN_LIST:
-            result = run_scalping_scan(t)
-            if result:
-                hits.append(result)
+        all_hits = []
+        for ticker in SCAN_LIST:
+            res = run_scalping_scan(ticker)
+            if res:
+                all_hits.append(res)
         
-        if hits:
+        if all_hits:
             play_sound()
-            alert_msg = "🎯 *EGX Scalping Alert!*\n\n"
-            for h in hits:
-                alert_msg += f"✅ *{h['Ticker']}*\nPrice: {h['Price']}\nRSI: {h['RSI']}\nTime: {h['Time']}\n---\n"
-            
-            send_telegram_msg(alert_msg)
-            with results_area:
-                st.success(f"🚨 New Signals Found!")
-                st.table(hits)
+            results_table.table(all_hits)
+            msg = "🎯 *EGX Alert!*\n" + "\n".join([f"✅ {h['Ticker']}: {h['Price']}" for h in all_hits])
+            send_telegram_msg(msg)
         else:
-            with results_area:
-                st.write(f"No signals at {datetime.now().strftime('%H:%M:%S')}. Waiting for next cycle...")
+            results_table.write("No signals found in this round.")
 
-        # --- العداد التنازلي المرئي ---
-        total_wait = 300 # 5 دقائق
-        for i in range(total_wait, 0, -1):
-            mins, secs = divmod(i, 60)
-            countdown_placeholder.metric("⏳ Next Scan In", f"{mins:02d}:{secs:02d}")
-            
-            # تحديث شريط التقدم
-            progress = (total_wait - i) / total_wait
-            progress_bar.progress(progress)
-            
+        # --- العداد التنازلي ---
+        wait_time = 300
+        for i in range(wait_time, 0, -1):
+            timer_text.metric("Next Scan In", f"{i // 60:02d}:{i % 60:02d}")
+            progress_bar.progress((wait_time - i) / wait_time)
             time.sleep(1)
-            
-        # إعادة تشغيل السكريبت لبدء دورة جديدة
-        st.rerun()
+        
+        try:
+            st.rerun()
+        except:
+            st.experimental_rerun()
