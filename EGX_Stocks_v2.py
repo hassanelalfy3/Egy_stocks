@@ -3,5 +3,5 @@ import yfinance as yf
 import pandas as pd
 import pandas_ta as ta
 import requests
-import time
+#import time
 from datetime import datetime
