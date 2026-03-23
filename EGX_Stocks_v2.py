@@ -16,10 +16,10 @@ def send_telegram_msg(message):
     try: requests.post(url, json=payload)
     except: pass
 
-def play_sound():
-    sound_url = "https://www.soundjay.com/buttons/sounds/button-3.mp3"
-    html_string = f'<audio autoplay><source src="{sound_url}" type="audio/mp3"></audio>'
-    st.components.v1.html(html_string, height=0)
+#def play_sound():
+#   sound_url = "https://www.soundjay.com/buttons/sounds/button-3.mp3"
+#  html_string = f'<audio autoplay><source src="{sound_url}" type="audio/mp3"></audio>'
+# st.components.v1.html(html_string, height=0)
 
 def run_scalping_scan(ticker):
     try:
