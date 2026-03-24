@@ -20,46 +20,58 @@ TV_INTERVALS = {
     "1d": Interval.INTERVAL_1_DAY
 }
 
-# --- TradingView Engine (Fixed Screener Logic) ---
+# --- TradingView Engine (The "Traffic Controller") ---
 def get_tv_analysis(symbol, interval_str):
     """
-    Automatically detects the correct Screener and Exchange 
-    to prevent the 'Error' status in the table.
+    Directs each ticker to the correct Screener/Exchange to fix the 
+    'Error' status seen in previous attempts.
     """
+    symbol = symbol.strip().upper()
+    
+    # 1. ROUTING LOGIC
     if ".CA" in symbol:
+        # Egyptian Market (EGX)
         exchange = "EGX"
         screener = "egypt"
         tv_symbol = symbol.replace(".CA", "")
-    elif symbol in ["GC=F", "GOLD"]:
+    elif symbol in ["GC=F", "GOLD", "XAUUSD"]:
+        # Gold Futures/CFDs
         exchange = "COMEX"
         screener = "cfd"
-        tv_symbol = "GC1!" # Gold Futures
-    else:
-        # Default for US Stocks (AMD, NVDA, etc.)
+        tv_symbol = "GC1!" 
+    elif symbol in ["NVDA", "AMD", "TSLA", "MSFT", "AAPL"]:
+        # US Tech (NASDAQ)
         exchange = "NASDAQ"
         screener = "america"
         tv_symbol = symbol
+    else:
+        # Default Fallback for US (NYSE/AMEX)
+        exchange = "NYSE"
+        screener = "america"
+        tv_symbol = symbol
 
+    # 2. FETCHING DATA
     try:
         handler = TA_Handler(
             symbol=tv_symbol,
             exchange=exchange,
             screener=screener,
             interval=TV_INTERVALS.get(interval_str, Interval.INTERVAL_15_MINUTES),
-            timeout=15
+            timeout=20 # Increased timeout to prevent 'Connection Reset'
         )
         return handler.get_analysis()
-    except:
+    except Exception:
         return None
 
 # --- UI Setup ---
 st.set_page_config(page_title="Sniper Engine Pro", layout="wide")
 st.title(f"🎯 Sniper Engine | {datetime.now(CAIRO_TZ).strftime('%H:%M:%S')}")
 
-# SIDEBAR
+# SIDEBAR: Connection
 st.sidebar.header("📡 Alerts & Connection")
 active_id = st.sidebar.text_input("Telegram Chat ID", value=DEFAULT_CHAT_ID)
 
+# SIDEBAR: Strategy
 st.sidebar.header("🎯 Strategy Settings")
 selected_strat = st.sidebar.selectbox("Signal Logic", [
     "VWAP + RSI > 50 (Whale Logic)", 
@@ -69,13 +81,16 @@ selected_strat = st.sidebar.selectbox("Signal Logic", [
 
 if selected_strat == "VWAP + RSI > 50 (Whale Logic)":
     st.sidebar.success("✅ Condition: Price > VWAP AND RSI > 50")
+    st.sidebar.info("This confirms 'Whale' control and positive momentum.")
 
+# SIDEBAR: Market
 st.sidebar.header("📊 Market Settings")
 p_tf = st.sidebar.selectbox("Timeframe", list(TV_INTERVALS.keys()), index=2)
-tickers_input = st.sidebar.text_area("Tickers", "GC=F, COMI.CA, FWRY.CA, AMD, NVDA")
+tickers_input = st.sidebar.text_area("Tickers", "GC=F, COMI.CA, FWRY.CA, ETEL.CA, AMD, NVDA")
 SCAN_LIST = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
 p_interval = st.sidebar.select_slider("Refresh (Sec)", options=[30, 60, 120], value=60)
 
+# ENGINE CONTROL
 if "active" not in st.session_state: st.session_state.active = False
 c1, c2 = st.sidebar.columns(2)
 if c1.button("🚀 Start"): st.session_state.active = True
@@ -83,7 +98,7 @@ if c2.button("🛑 Stop"): st.session_state.active = False
 
 # --- Main Engine ---
 if st.session_state.active:
-    st.info(f"🛰️ Active Strategy: {selected_strat}")
+    st.info(f"🛰️ Scanning Markets for: {selected_strat}")
     table_placeholder = st.empty()
 
     while True:
@@ -91,16 +106,24 @@ if st.session_state.active:
         for ticker in SCAN_LIST:
             analysis = get_tv_analysis(ticker, p_tf)
             
+            # If TradingView fails to return data
             if not analysis:
-                results.append({"Ticker": ticker, "Status": "⚠️ Error", "Price": 0, "Signal": "N/A", "RSI": "N/A"})
+                results.append({
+                    "Ticker": ticker, 
+                    "Status": "⚠️ Error (Not Found)", 
+                    "Price": 0, 
+                    "Signal": "N/A", 
+                    "RSI": "N/A"
+                })
                 continue
 
+            # Extract Data Points
             price = analysis.indicators["close"]
             rsi = analysis.indicators["RSI"]
             vwap = analysis.indicators.get("VWAP", 0)
             summary = analysis.summary["RECOMMENDATION"]
             
-            # --- Strategy Logic ---
+            # --- APPLY STRATEGY LOGIC ---
             match = False
             if selected_strat == "VWAP + RSI > 50 (Whale Logic)":
                 match = (price > vwap) and (rsi > 50)
@@ -109,6 +132,7 @@ if st.session_state.active:
             elif selected_strat == "RSI Threshold":
                 match = (rsi >= 70)
 
+            # Build Table Row
             results.append({
                 "Ticker": ticker,
                 "Status": "🎯 MATCH" if match else "❌ " + summary.replace("_", " "),
@@ -117,11 +141,16 @@ if st.session_state.active:
                 "Last Update": datetime.now(CAIRO_TZ).strftime("%H:%M:%S")
             })
 
+            # Telegram Alert
             if match:
-                msg = f"🎯 *SNIPER MATCH: {ticker}*\nPrice: {price}\nSignal: {selected_strat}\nRSI: {round(rsi,2)}"
-                try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={"chat_id": active_id, "text": msg, "parse_mode": "Markdown"})
-                except: pass
+                msg = f"🎯 *SNIPER MATCH: {ticker}*\nPrice: {price}\nSignal: {selected_strat}\nRSI: {round(rsi,2)}\nTF: {p_tf}"
+                try: 
+                    requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", 
+                                  json={"chat_id": active_id, "text": msg, "parse_mode": "Markdown"})
+                except: 
+                    pass
 
+        # Update Display
         if results:
             df_table = pd.DataFrame(results)
             table_placeholder.table(df_table)
