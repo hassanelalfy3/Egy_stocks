@@ -112,7 +112,7 @@ elif selected_strat == "Bollinger Band Reversal":
 
 st.sidebar.header("📊 Market Settings")
 p_tf = st.sidebar.selectbox("Timeframe", ["1m", "5m", "15m", "30m", "1h", "1d", "5d", "1M", "3M", "6M", "YTD"], index=2) # Default to 15m
-tickers_input = st.sidebar.text_area("Tickers", "GC=F, COMI.CA, TMGH.CA, HRHO.CA, FWRY.CA, EAST.CA, ETEL.CA, ABUK.CA, ADIB.CA, EFIH.CA, ATLC.CA, AMD")
+tickers_input = st.sidebar.text_area("Tickers", "GC=F, CLHO.CA,COMI.CA,DSCW.CA,EFIH.CA,GBCO.CA,IPSH.CA,MASR.CA,NIPH.CA,ORAS.CA,ORHD.CA,PHAR.CA,PHDC.CA, TMGH.CA, HRHO.CA, FWRY.CA, ETEL.CA, ABUK.CA")
 SCAN_LIST = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
 p_interval = st.sidebar.select_slider("Refresh (Sec)", options=[30, 60, 120, 300], value=60)
 
