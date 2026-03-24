@@ -20,14 +20,25 @@ TV_INTERVALS = {
     "1d": Interval.INTERVAL_1_DAY
 }
 
-# --- TradingView Engine ---
+# --- TradingView Engine (Fixed Screener Logic) ---
 def get_tv_analysis(symbol, interval_str):
+    """
+    Automatically detects the correct Screener and Exchange 
+    to prevent the 'Error' status in the table.
+    """
     if ".CA" in symbol:
-        exchange, screener, tv_symbol = "EGX", "egypt", symbol.replace(".CA", "")
-    elif "GC=F" in symbol:
-        exchange, screener, tv_symbol = "COMEX", "cfd", "GC1!"
+        exchange = "EGX"
+        screener = "egypt"
+        tv_symbol = symbol.replace(".CA", "")
+    elif symbol in ["GC=F", "GOLD"]:
+        exchange = "COMEX"
+        screener = "cfd"
+        tv_symbol = "GC1!" # Gold Futures
     else:
-        exchange, screener, tv_symbol = "NASDAQ", "america", symbol
+        # Default for US Stocks (AMD, NVDA, etc.)
+        exchange = "NASDAQ"
+        screener = "america"
+        tv_symbol = symbol
 
     try:
         handler = TA_Handler(
@@ -35,31 +46,28 @@ def get_tv_analysis(symbol, interval_str):
             exchange=exchange,
             screener=screener,
             interval=TV_INTERVALS.get(interval_str, Interval.INTERVAL_15_MINUTES),
-            timeout=10
+            timeout=15
         )
         return handler.get_analysis()
     except:
         return None
 
 # --- UI Setup ---
-st.set_page_config(page_title="Sniper TV Pro", layout="wide")
+st.set_page_config(page_title="Sniper Engine Pro", layout="wide")
 st.title(f"🎯 Sniper Engine | {datetime.now(CAIRO_TZ).strftime('%H:%M:%S')}")
 
+# SIDEBAR
 st.sidebar.header("📡 Alerts & Connection")
 active_id = st.sidebar.text_input("Telegram Chat ID", value=DEFAULT_CHAT_ID)
 
 st.sidebar.header("🎯 Strategy Settings")
-# ADDED: VWAP + RSI > 50 to the selection
 selected_strat = st.sidebar.selectbox("Signal Logic", [
     "VWAP + RSI > 50 (Whale Logic)", 
     "TV Summary (Strong Buy)", 
     "RSI Threshold"
 ])
 
-params = {}
-if selected_strat == "RSI Threshold":
-    params['rsi_limit'] = st.sidebar.slider("RSI Overbought", 50, 90, 70)
-elif selected_strat == "VWAP + RSI > 50 (Whale Logic)":
+if selected_strat == "VWAP + RSI > 50 (Whale Logic)":
     st.sidebar.success("✅ Condition: Price > VWAP AND RSI > 50")
 
 st.sidebar.header("📊 Market Settings")
@@ -75,50 +83,42 @@ if c2.button("🛑 Stop"): st.session_state.active = False
 
 # --- Main Engine ---
 if st.session_state.active:
-    st.info(f"🛰️ Scanning Strategy: {selected_strat}")
+    st.info(f"🛰️ Active Strategy: {selected_strat}")
     table_placeholder = st.empty()
 
     while True:
         results = []
         for ticker in SCAN_LIST:
             analysis = get_tv_analysis(ticker, p_tf)
+            
             if not analysis:
                 results.append({"Ticker": ticker, "Status": "⚠️ Error", "Price": 0, "Signal": "N/A", "RSI": "N/A"})
                 continue
 
-            # Extract Indicators
             price = analysis.indicators["close"]
             rsi = analysis.indicators["RSI"]
-            vwap = analysis.indicators.get("VWAP", 0) # TradingView VWAP
+            vwap = analysis.indicators.get("VWAP", 0)
             summary = analysis.summary["RECOMMENDATION"]
             
-            # --- STRATEGY LOGIC ---
+            # --- Strategy Logic ---
             match = False
-            
-            # New Whale Logic: Price > VWAP and RSI > 50
             if selected_strat == "VWAP + RSI > 50 (Whale Logic)":
                 match = (price > vwap) and (rsi > 50)
-                details = f"P:{round(price,2)} > V:{round(vwap,2)} | RSI:{round(rsi,1)}"
-            
             elif selected_strat == "TV Summary (Strong Buy)":
                 match = (summary == "STRONG_BUY")
-                details = summary
-            
             elif selected_strat == "RSI Threshold":
-                match = (rsi >= params['rsi_limit'])
-                details = f"RSI: {round(rsi,2)}"
+                match = (rsi >= 70)
 
             results.append({
                 "Ticker": ticker,
-                "Status": "🎯 MATCH" if match else "❌ Wait",
+                "Status": "🎯 MATCH" if match else "❌ " + summary.replace("_", " "),
                 "Price": round(price, 4),
-                "VWAP": round(vwap, 2),
                 "RSI": round(rsi, 2),
                 "Last Update": datetime.now(CAIRO_TZ).strftime("%H:%M:%S")
             })
 
             if match:
-                msg = f"🐳 *WHALE SIGNAL: {ticker}*\nPrice: {price}\nVWAP: {round(vwap,2)}\nRSI: {round(rsi,2)}\nTF: {p_tf}"
+                msg = f"🎯 *SNIPER MATCH: {ticker}*\nPrice: {price}\nSignal: {selected_strat}\nRSI: {round(rsi,2)}"
                 try: requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={"chat_id": active_id, "text": msg, "parse_mode": "Markdown"})
                 except: pass
 
