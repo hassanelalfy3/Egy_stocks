@@ -134,7 +134,7 @@ if st.session_state.active:
         for ticker in SCAN_LIST:
             df = get_data_with_fallback(ticker, p_tf)
             if df.empty:
-                results.append({"Ticker": ticker, "Status": "⚠️ No Data", "Price": 0, "Details": "N/A", "Last Update": "N/A", "_ts": pd.Timestamp(0).tz_localize(CAIRO_TZ)})
+                results.append({"Ticker": ticker, "Status": "⚠️ No Data", "Price (Previous Close)": 0, "Details": "N/A", "Last Update": "N/A", "_ts": pd.Timestamp(0).tz_localize(CAIRO_TZ)})
                 continue
 
             match, details = False, "N/A"
